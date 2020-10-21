@@ -122,7 +122,6 @@ def tau_try(initial_condition, A, fx, fxt, degree_weighted, gx_i, gx_j):
     else:
         return 1
 
-
 def tau_eigenvalue(network_type, N, beta, nu_set, tau_set, arguments, seed, d=None):
     """TODO: Docstring for character_multi.
 
@@ -144,10 +143,11 @@ def tau_eigenvalue(network_type, N, beta, nu_set, tau_set, arguments, seed, d=No
 
     tau_sol = np.ones((np.size(tau_set), np.size(nu_set))) * 10
     p = mp.Pool(cpu_number)
-    p.starmap_async(tau_try, [(initial_condition, A, fx, fxt, degree_weighted, gx_i, gx_j) for initial_condition in np.array(np.meshgrid(tau_set, nu_set)).reshape(2, int(np.size(tau_set) * np.size(nu_set))).transpose()]).get()
+    tau_sol = p.starmap_async(tau_try, [(initial_condition, A, fx, fxt, degree_weighted, gx_i, gx_j) for initial_condition in np.array(np.meshgrid(tau_set, nu_set)).reshape(2, int(np.size(tau_set) * np.size(nu_set))).transpose()]).get()
     p.close()
     p.join()
 
+    tau_sol = np.array(tau_sol)
     return tau_sol, A
 
 def tau_multi_critical(network_type, N, arguments, beta_set, seed, d=None, nu_set=None, tau_set=None, low=0.1, high=10):
@@ -160,23 +160,30 @@ def tau_multi_critical(network_type, N, arguments, beta_set, seed, d=None, nu_se
     tau_critical = np.zeros(np.size(beta_set))
     for beta, i in zip(beta_set, range(np.size(beta_set))):
         t1 = time.time()
-        tau_sol, A = np.ravel(tau_eigenvalue(network_type, N, beta, nu_set, tau_set, arguments, seed, d=d))
+        tau_sol, A = tau_eigenvalue(network_type, N, beta, nu_set, tau_set, arguments, seed, d=d)
+        tau_sol = np.ravel(tau_sol)
         tau_critical[i] = np.min(tau_sol[tau_sol>0])
         t2 = time.time()
         print(i, t2 - t1, tau_critical)
 
-    degree = np.sum(np.heaviside(A, 0), 0)
-    hetero = np.sum((degree - np.mean(degree))**2)/ N
-    data = np.hstack((seed, np.mean(degree), hetero, tau_critical))
-    data = pd.DataFrame(data.reshape(1, np.size(data)))
+    data = np.hstack((seed, tau_critical))
+    column_name = ['seed']
+    column_name.extend([ str(beta) for beta in beta_set])
+
     des = '../data/'
     if not os.path.exists(des):
         os.makedirs(des)
-    data.to_csv(des + network_type + f'_N={N}_d=' + str(d).replace('.', '') + '_logistic.csv', header=None, index=None, mode='a')
+    des_file = des + network_type + f'_N={N}_d=' + str(d).replace('.', '') + '_logistic.csv'
+    if not os.path.exists(des_file):
+        df = pd.DataFrame(data.reshape(1, np.size(data)), columns = column_name)
+        df.to_csv(des_file, index=None, mode='a')
+    else:
+        df = pd.DataFrame(data.reshape(1, np.size(data)))
+        df.to_csv(des_file, index=None, header=None, mode='a')
     return tau_critical
 
 imag = 1j
-N = 2500
+N = 100
 
 tau_set = np.array([0.316])
 nu_set = np.array([5.2])
@@ -196,12 +203,17 @@ network_type = '2D'
 network_type = 'BA'
 network_type = 'ER'
 network_type = 'SF'
-seed_set = np.arange(2, 100, 1).tolist()
+network_type = 'star'
+seed_set = np.arange(100, 500, 1).tolist()
 beta_set = np.arange(1, 2, 1)
-
-for d in d_set:
-    for seed in seed_set:
-        tau_c = tau_multi_critical(network_type, N, arguments, beta_set, seed, nu_set = nu_set, tau_set = tau_set, d = d)
+N_list = [100]
+t1 = time.time()
+for N in N_list:
+    for d in d_set:
+        for seed in seed_set:
+            tau_c = tau_multi_critical(network_type, N, arguments, beta_set, seed, nu_set = nu_set, tau_set = tau_set, d = d)
+t2 = time.time()
+print(t2 -t1)
 
 beta = 1
 d1 = 0.272
