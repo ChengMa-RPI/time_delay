@@ -1,5 +1,8 @@
+import os
+os.environ['OPENBLAS_NUM_THREADS'] ='1'
 import sys
 sys.path.insert(1, '/home/mac/RPI/research/')
+
 from mutual_framework import load_data, A_from_data, Gcc_A_mat, betaspace, mutual_1D, mutual_multi, network_generate, stable_state, ode_Cheng, ddeint_Cheng
 
 import sympy as sp
@@ -10,7 +13,6 @@ from scipy.integrate import odeint
 import networkx as nx
 import multiprocessing as mp
 import time
-import os
 from ddeint import ddeint
 from numpy import linalg as LA
 import pandas as pd 
@@ -22,9 +24,9 @@ import itertools
 from scipy import linalg as slin
 from scipy.sparse.linalg import eigs as sparse_eig
 
-
 mpl.rcParams['axes.prop_cycle'] = cycler(color=['tab:blue', 'tab:orange', 'tab:green', 'tab:red', 'tab:purple', 'tab:brown', 'tab:pink', 'grey', 'tab:olive', 'tab:cyan']) 
 
+cpu_number = 4
 B = 0.1
 C = 1
 K = 5
@@ -106,6 +108,21 @@ def eigenvalue_zero(x, A, fx, fxt, Degree, gx_i, gx_j):
     zeropoint = eigenvalue[np.argmin(np.abs(eigenvalue))]
     return np.array([np.real(zeropoint), np.imag(zeropoint)])
 
+def tau_try(initial_condition, A, fx, fxt, degree_weighted, gx_i, gx_j):
+    """TODO: Docstring for tau_try.
+
+    :arg1: TODO
+    :returns: TODO
+
+    """
+    tau_solution, nu_solution = fsolve(eigenvalue_zero, initial_condition, args=(A, fx, fxt, degree_weighted, gx_i, gx_j))
+    eigen_real, eigen_imag = eigenvalue_zero(np.array([tau_solution, nu_solution]), A, fx, fxt, degree_weighted, gx_i, gx_j)
+    if abs(eigen_real) < 1e-5 and abs(eigen_imag) < 1e-5:
+        return tau_solution 
+    else:
+        return 1
+
+
 def tau_eigenvalue(network_type, N, beta, nu_set, tau_set, arguments, seed, d=None):
     """TODO: Docstring for character_multi.
 
@@ -126,16 +143,11 @@ def tau_eigenvalue(network_type, N, beta, nu_set, tau_set, arguments, seed, d=No
     gx_j = xs/(D + E*xs + H*xs) - H * xs**2 / (D + E*xs + H*xs)**2
 
     tau_sol = np.ones((np.size(tau_set), np.size(nu_set))) * 10
-    for tau, i in zip(tau_set, range(np.size(tau_set))):
-        for nu, j in zip(nu_set, range(np.size(nu_set))):
-            t1=time.time()
-            initial_condition = np.array([tau, nu])
-            tau_solution, nu_solution = fsolve(eigenvalue_zero, initial_condition, args=(A, fx, fxt, degree_weighted, gx_i, gx_j))
-            eigen_real, eigen_imag = eigenvalue_zero(np.array([tau_solution, nu_solution]), A, fx, fxt, degree_weighted, gx_i, gx_j)
-            if abs(eigen_real) < 1e-5 and abs(eigen_imag) < 1e-5:
-                tau_sol[i, j] = tau_solution
-            t2=time.time()
-            print(tau, nu, t2-t1, tau_solution)
+    p = mp.Pool(cpu_number)
+    p.starmap_async(tau_try, [(initial_condition, A, fx, fxt, degree_weighted, gx_i, gx_j) for initial_condition in np.array(np.meshgrid(tau_set, nu_set)).reshape(2, int(np.size(tau_set) * np.size(nu_set))).transpose()]).get()
+    p.close()
+    p.join()
+
     return tau_sol, A
 
 def tau_multi_critical(network_type, N, arguments, beta_set, seed, d=None, nu_set=None, tau_set=None, low=0.1, high=10):
@@ -184,19 +196,17 @@ network_type = '2D'
 network_type = 'BA'
 network_type = 'ER'
 network_type = 'SF'
-seed_set = np.arange(0, 100, 1).tolist()
+seed_set = np.arange(2, 100, 1).tolist()
 beta_set = np.arange(1, 2, 1)
 
-'''
 for d in d_set:
     for seed in seed_set:
         tau_c = tau_multi_critical(network_type, N, arguments, beta_set, seed, nu_set = nu_set, tau_set = tau_set, d = d)
-'''
 
 beta = 1
 d1 = 0.272
 d2 = 0
 d3 = 0
 seed = 1
-dyn_all = evolution(network_type, N, beta, seed, arguments, d1, d2, d3, d)
+#dyn_all = evolution(network_type, N, beta, seed, arguments, d1, d2, d3, d)
 
