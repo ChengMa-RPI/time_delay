@@ -163,11 +163,13 @@ def tau_multi_critical(network_type, N, arguments, beta_set, seed, d=None, nu_se
         tau_sol, A = tau_eigenvalue(network_type, N, beta, nu_set, tau_set, arguments, seed, d=d)
         tau_sol = np.ravel(tau_sol)
         tau_critical[i] = np.min(tau_sol[tau_sol>0])
+        index_critical = np.where(np.abs(tau_sol - tau_critical[i])<1e-10)[0]
         t2 = time.time()
-        print(i, t2 - t1, tau_critical)
+        print(i, t2 - t1, tau_critical, index_critical)
 
     data = np.hstack((seed, tau_critical))
-    column_name = ['seed']
+ 
+    column_name = [f'seed{i}' for i in range(len(seed))]
     column_name.extend([ str(beta) for beta in beta_set])
 
     des = '../data/'
@@ -183,7 +185,7 @@ def tau_multi_critical(network_type, N, arguments, beta_set, seed, d=None, nu_se
     return tau_critical
 
 imag = 1j
-N = 100
+N = 2500
 
 tau_set = np.array([0.316])
 nu_set = np.array([5.2])
@@ -196,29 +198,36 @@ d_set = [900]
 d_set = [200, 400, 600, 900, 1600, 2500]
 d_set = [5, 10, 15, 20, 25, 50]
 d_set = [2, 2.5, 3, 3.5, 4, 4.5, 5]
-d_set = [3]
+d_set = [200, 300, 400, 500]
 network_type = 'real'
 network_type = 'RR'
 network_type = '2D'
 network_type = 'BA'
+network_type = 'star'
 network_type = 'ER'
 network_type = 'SF'
-network_type = 'star'
-seed_set = np.arange(100, 500, 1).tolist()
+seed_set = np.arange(0, 500, 1).tolist()
 beta_set = np.arange(1, 2, 1)
-N_list = [100]
+N_list = [1000]
+
+kmin = [3]
+gamma = [3]
+d_list = np.hstack((np.meshgrid(kmin, gamma)[0], np.meshgrid(kmin, gamma)[1]))
+seed1 = [0]
+seed2 = np.arange(100).tolist()
+seed_list = np.hstack((np.meshgrid(seed1, seed2)[0], np.meshgrid(seed1, seed2)[1])).tolist()
+
 t1 = time.time()
 for N in N_list:
-    for d in d_set:
-        for seed in seed_set:
+    for d in d_list:
+        for seed in seed_list:
             tau_c = tau_multi_critical(network_type, N, arguments, beta_set, seed, nu_set = nu_set, tau_set = tau_set, d = d)
 t2 = time.time()
 print(t2 -t1)
 
 beta = 1
-d1 = 0.272
+d1 = 0.31
 d2 = 0
 d3 = 0
-seed = 1
+seed = 499
 #dyn_all = evolution(network_type, N, beta, seed, arguments, d1, d2, d3, d)
-
