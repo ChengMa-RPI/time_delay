@@ -23,6 +23,7 @@ import matplotlib as mpl
 import itertools
 from scipy import linalg as slin
 from scipy.sparse.linalg import eigs as sparse_eig
+from scipy.signal import find_peaks
 
 mpl.rcParams['axes.prop_cycle'] = cycler(color=['tab:blue', 'tab:orange', 'tab:green', 'tab:red', 'tab:purple', 'tab:brown', 'tab:pink', 'grey', 'tab:olive', 'tab:cyan']) 
 
@@ -63,6 +64,69 @@ def mutual_multi_delay(f, x0, t, dt, d1, d2, d3, N, index_i, index_j, A_interact
     dxdt = sum_f + x * np.add.reduceat(sum_g, cum_index[:-1])
     return dxdt
 
+def mutual_single_delay(f, x0, t, dt, d1, d2, d3, N, delay_node, index_i, index_j, A_interaction, cum_index, arguments):
+    """describe the derivative of x.
+    set universal parameters 
+    :x: the species abundance of plant network 
+    :t: the simulation time sequence 
+    :par: parameters  of this system
+    :returns: derivative of x 
+
+    """
+    x = f[int(t/dt)]
+    xd1 = np.where(t>d1, f[int((t-d1)/dt)], x0)
+    xd2 = np.where(t>d2, f[int((t-d2)/dt)], x0)
+    xd3 = np.where(t>d3, f[int((t-d3)/dt)], x0)
+
+    B, C, D, E, H, K = arguments
+    x[np.where(x<0)] = 0  # Negative x is forbidden
+    sum_f = B + x * (1 - x/K) * ( x/C - 1)
+    sum_f[delay_node] = B + x[delay_node] * (1 - xd1[delay_node]/K) * ( xd2[delay_node]/C - 1)
+    sum_g = A_interaction * x[index_j] / (D + E * x[index_i] + H * x[index_j])
+
+    dxdt = sum_f + x * np.add.reduceat(sum_g, cum_index[:-1])
+    return dxdt
+
+
+def one_single_delay(f, x0, t, dt, d1, d2, d3, w, x_fix, arguments):
+    """describe the derivative of x.
+    set universal parameters 
+    :x: the species abundance of plant network 
+    :t: the simulation time sequence 
+    :par: parameters  of this system
+    :returns: derivative of x 
+
+    """
+    x = f[int(t/dt)]
+    xd1 = np.where(t>d1, f[int((t-d1)/dt)], x0)
+    xd2 = np.where(t>d2, f[int((t-d2)/dt)], x0)
+    xd3 = np.where(t>d3, f[int((t-d3)/dt)], x0)
+
+    B, C, D, E, H, K = arguments
+    x[np.where(x<0)] = 0  # Negative x is forbidden
+    sum_f = B + x * (1 - xd1/K) * ( xd2/C - 1)
+    sum_g = w * x * x_fix / (D + E * x + H * x_fix)
+
+    dxdt = sum_f + sum_g
+    return dxdt
+
+def one_kmax(x, w, x_fix, arguments):
+    """describe the derivative of x.
+    set universal parameters 
+    :x: the species abundance of plant network 
+    :t: the simulation time sequence 
+    :par: parameters  of this system
+    :returns: derivative of x 
+
+    """
+
+    B, C, D, E, H, K = arguments
+    sum_f = B + x * (1 - x/K) * ( x/C - 1)
+    sum_g = w * x * x_fix / (D + E * x + H * x_fix)
+
+    dxdt = sum_f + sum_g
+    return dxdt
+
 def evolution(network_type, N, beta, seed, arguments, d1, d2, d3, d=None):
     """TODO: Docstring for evolution.
 
@@ -73,7 +137,7 @@ def evolution(network_type, N, beta, seed, arguments, d1, d2, d3, d=None):
     A, A_interaction, index_i, index_j, cum_index = network_generate(network_type, N, beta, seed, d)
     N = np.size(A, 0)
     initial_condition = np.ones(N) * 5 
-    t = np.arange(0, 1000,0.01)
+    t = np.arange(0, 500,0.001)
     #dyn_all = ddeint(mutual_multi_delay_original, g, t, fargs=(d1, d2, d3, N, index_i, index_j, A_interaction, cum_index, arguments))
     t1 = time.time()
     dyn_all = ddeint_Cheng(mutual_multi_delay, initial_condition, t, *(d1, d2, d3, N, index_i, index_j, A_interaction, cum_index, arguments))
@@ -86,7 +150,7 @@ def evolution(network_type, N, beta, seed, arguments, d1, d2, d3, d=None):
     plt.yticks(fontsize=ticksize)
     plt.xlabel('$t$', fontsize= fs)
     plt.ylabel('$\\langle x \\rangle$', fontsize =fs)
-    plt.show()
+    #plt.show()
     return dyn_all
 
 def eigenvalue_zero(x, A, fx, fxt, Degree, gx_i, gx_j):
@@ -119,7 +183,7 @@ def tau_eigenvalue(network_type, N, beta, nu_set, tau_set, arguments, seed, d=No
     B, C, D, E, H, K = arguments
     A, A_interaction, index_i, index_j, cum_index = network_generate(network_type, N, beta, seed, d)
     degree_weighted = np.sum(A, 0)
-    xs_low, xs_high = stable_state(A, A_interaction, index_i, index_j, cum_index, arguments, d=d)
+    xs_low, xs_high = stable_state(A, A_interaction, index_i, index_j, cum_index, arguments)
     xs = xs_high
 
     fx = (1-xs/K) * (2*xs/C-1)
@@ -131,7 +195,6 @@ def tau_eigenvalue(network_type, N, beta, nu_set, tau_set, arguments, seed, d=No
     for initial_condition in np.array(np.meshgrid(tau_set, nu_set)).reshape(2, int(np.size(tau_set) * np.size(nu_set))).transpose():
         tau_solution, nu_solution = fsolve(eigenvalue_zero, initial_condition, args=(A, fx, fxt, degree_weighted, gx_i, gx_j))
         eigen_real, eigen_imag = eigenvalue_zero(np.array([tau_solution, nu_solution]), A, fx, fxt, degree_weighted, gx_i, gx_j)
-        print(tau_solution)
         if abs(eigen_real) < 1e-5 and abs(eigen_imag) < 1e-5:
             tau_sol.append(tau_solution)
         else:
@@ -141,7 +204,7 @@ def tau_eigenvalue(network_type, N, beta, nu_set, tau_set, arguments, seed, d=No
     #index_critical = np.where(np.abs(tau_sol - tau_critical[i])<1e-10)[0]
     data = np.hstack((seed, tau_critical))
  
-    column_name = [f'seed{i}' for i in range(len(seed))]
+    column_name = [f'seed{i}' for i in range(np.size(seed))]
     column_name.extend([ str(beta) for beta in beta_set])
 
     des = '../data/'
@@ -157,7 +220,7 @@ def tau_eigenvalue(network_type, N, beta, nu_set, tau_set, arguments, seed, d=No
 
     return None
 
-def tau_multi_critical(network_type, N, arguments, beta_set, seed_list, d=None, nu_set=None, tau_set=None, low=0.1, high=10):
+def tau_eigen_parallel(network_type, N, arguments, beta_set, seed_list, d=None, nu_set=None, tau_set=None, low=0.1, high=10):
     """TODO: Docstring for tau_critical.
 
     :arg1: TODO
@@ -175,7 +238,7 @@ def tau_multi_critical(network_type, N, arguments, beta_set, seed_list, d=None, 
 
     return None
 
-def tau_evolution(network_type, N, beta, seed, arguments, delay1, delay2, criteria_delay, criteria_dyn, d):
+def tau_evolution(network_type, N, beta, betaeffect, seed, arguments, delay1, delay2, criteria_delay, criteria_dyn, d):
     """TODO: Docstring for tau_evolution.
 
     :network_type: TODO
@@ -186,21 +249,22 @@ def tau_evolution(network_type, N, beta, seed, arguments, delay1, delay2, criter
     :returns: TODO
 
     """
-    A, A_interaction, index_i, index_j, cum_index = network_generate(network_type, N, beta, seed, d)
+    print(seed)
+    A, A_interaction, index_i, index_j, cum_index = network_generate(network_type, N, beta, betaeffect, seed, d)
     N = np.size(A, 0)
     initial_condition = np.ones(N) * 5 
-    t = np.arange(0, 1000,0.01)
+    t = np.arange(0, 200, 0.001)
     dyn_dif = 1
     delta_delay = delay2 - delay1
     result = dict()
     while delta_delay > criteria_delay:
         if delay1 not in result:
-            dyn_all1 = ddeint_Cheng(mutual_multi_delay, initial_condition, t, *(delay1, 0, 0, N, index_i, index_j, A_interaction, cum_index, arguments))[-2000:]
-            diff1 = np.max(np.abs(dyn_all1 - np.mean(dyn_all1, 0)))
+            dyn_all1 = ddeint_Cheng(mutual_multi_delay, initial_condition, t, *(delay1, 0, 0, N, index_i, index_j, A_interaction, cum_index, arguments))[-10000:]
+            diff1 = np.max(np.max(dyn_all1, 0) - np.min(dyn_all1, 0))
             result[delay1] = diff1
         if delay2 not in result:
-            dyn_all2 = ddeint_Cheng(mutual_multi_delay, initial_condition, t, *(delay2, 0, 0, N, index_i, index_j, A_interaction, cum_index, arguments))[-2000:]
-            diff2 = np.max(np.abs(dyn_all2 - np.mean(dyn_all2, 0)))
+            dyn_all2 = ddeint_Cheng(mutual_multi_delay, initial_condition, t, *(delay2, 0, 0, N, index_i, index_j, A_interaction, cum_index, arguments))[-10000:]
+            diff2 = np.max(np.max(dyn_all2, 0) - np.min(dyn_all2, 0))
             result[delay2] = diff2
         if result[delay1] < criteria_dyn and (result[delay2] > criteria_dyn or np.isnan(result[delay2])):
             delay1 = np.round(delay1 + delta_delay/2, 10)
@@ -211,7 +275,7 @@ def tau_evolution(network_type, N, beta, seed, arguments, delay1, delay2, criter
     print(seed, delay1, delay2)
     data = np.hstack((seed, delay1))
  
-    column_name = [f'seed{i}' for i in range(len(seed))]
+    column_name = [f'seed{i}' for i in range(np.size(seed))]
     column_name.extend([ str(beta) for beta in beta_set])
 
     des = '../data/'
@@ -224,10 +288,11 @@ def tau_evolution(network_type, N, beta, seed, arguments, delay1, delay2, criter
     else:
         df = pd.DataFrame(data.reshape(1, np.size(data)))
         df.to_csv(des_file, index=None, header=None, mode='a')
+    print('good')
 
     return delay2
 
-def tau_evolution_parallel(network_type, N, beta, seed_list, arguments, delay1, delay2, criteria_delay, criteria_dyn, d):
+def tau_evolution_parallel(network_type, N, beta, betaeffect, seed_list, arguments, delay1, delay2, criteria_delay, criteria_dyn, d):
     """TODO: Docstring for tau_evolution_parallel.
 
     :network_type: TODO
@@ -239,11 +304,141 @@ def tau_evolution_parallel(network_type, N, beta, seed_list, arguments, delay1, 
     """
 
     p = mp.Pool(cpu_number)
-    p.starmap_async(tau_evolution, [(network_type, N, beta, seed, arguments, delay1, delay2, criteria_delay, criteria_dyn, d) for seed in seed_list]).get()
+    p.starmap_async(tau_evolution, [(network_type, N, beta, betaeffect, seed, arguments, delay1, delay2, criteria_delay, criteria_dyn, d) for seed in seed_list]).get()
     p.close()
     p.join()
 
     return None
+
+def compare_evo_eigenvalue(network_type, N, beta, seed,d ):
+    """TODO: Docstring for compare_evo_eigenvalue.
+
+    :network_type: TODO
+    :N: TODO
+    :beta: TODO
+    :seed: TODO
+    :d: TODO
+    :returns: TODO
+
+    """
+    data_eigen = np.array(pd.read_csv('../data/'+ network_type + f'_N={N}_d=' + str(d) + '_logistic.csv').iloc[:, :])
+    seed_eigen = np.array(data_eigen[:, 0], int)
+    tau_eigen = data_eigen[:, -1][np.argsort(seed_eigen)]
+    data_evo = np.array(pd.read_csv('../data/'+ network_type + f'_N={N}_d=' + str(d) + '_evolution.csv').iloc[:, :])
+    seed_evo = np.array(data_evo[:, 0], int)
+    tau_evo = data_evo[:, -1]
+    tau_eigen = tau_eigen[seed_evo]
+    plt.plot(tau_eigen, tau_evo, 'o')
+    plt.plot(np.arange(0.2, 0.4, 0.1), np.arange(0.2, 0.4, 0.1))
+
+def evolution_analysis(network_type, N, beta, betaeffect, seed, d, delay):
+    """TODO: Docstring for evolution_oscillation.
+
+    :arg1: TODO
+    :returns: TODO
+
+    """
+
+    A, A_interaction, index_i, index_j, cum_index = network_generate(network_type, N, beta, betaeffect, seed, d)
+    xs_low, xs_high = stable_state(A, A_interaction, index_i, index_j, cum_index, arguments)
+    degree= np.sum(A>0, 0)
+    N = np.size(A, 0)
+    initial_condition = xs_high - 0.0001
+    initial_condition = np.ones(N) * 5
+    t = np.arange(0, 100, 0.01)
+    dyn_all = ddeint_Cheng(mutual_multi_delay, initial_condition, t, *(delay, 0, 0, N, index_i, index_j, A_interaction, cum_index, arguments))
+    #dyn_all = ddeint_Cheng(mutual_single_delay, initial_condition, t, *(delay, 0, 0, N, [974], index_i, index_j, A_interaction, cum_index, arguments))
+    w = np.sum(A[np.argmax(degree)])
+    initial_condition = np.ones(1) * 5
+    #dyn_all = ddeint_Cheng(one_single_delay, initial_condition, t, *(delay, 0, 0, w, np.mean(xs_high), arguments))
+    #xs_high = ddeint_Cheng(one_single_delay, initial_condition, t, *(0, 0, 0, w, np.mean(xs_high), arguments))
+
+    diff = dyn_all - xs_high
+    peaks = []
+    peaks_index = []
+    for i in diff.transpose():
+
+        peak_index, _ = list(find_peaks(i))
+        peak = i[peak_index]
+        positive_index = np.where(peak>0)[0]
+        peak_positive = peak[positive_index]
+        peak_index_positive = peak_index[positive_index]
+
+        peaks.append(peak_positive)
+        peaks_index.append(peak_index_positive)
+    #plt.loglog(degree, peaks_last, 'o')
+        plt.semilogy(peak_index_positive, peak_positive, '.', color='r')
+
+    return degree, w, dyn_all, diff, peaks, peaks_index
+
+def tau_kmax(network_type, N, d, beta, betaeffect, arguments, seed_list):
+    """TODO: Docstring for tau_kmax.
+
+    :network_type: TODO
+    :N: TODO
+    :beta: TODO
+    :betaeffect: TODO
+    :returns: TODO
+
+    """
+    tau_list = []
+    B, C, D, E, H, K = arguments
+    for seed in seed_list:
+        A, A_interaction, index_i, index_j, cum_index = network_generate(network_type, N, beta, betaeffect, seed, d)
+        degree = np.sum(A>0, 0)
+        index = np.argmax(degree)
+        w = np.sum(A[index])
+        xs_low, xs_high = stable_state(A, A_interaction, index_i, index_j, cum_index, arguments)
+        x_fix = np.mean(xs_high)
+        #xs = ddeint_Cheng(one_single_delay, np.ones(1), np.arange(0, 100, 0.01), *(0, 0, 0, w, x_fix, arguments))[-1]
+        xs = fsolve(one_kmax, np.ones(1) * 5, args=(w, x_fix, arguments))
+        P =  - (w * x_fix)/(D + E * xs + H * x_fix) + (w * E * xs * x_fix)/(D + E * xs + H * x_fix)**2 -(1-xs/K) * (2*xs/C-1)
+        Q = xs/K*(xs/C-1)
+        tau = np.arccos(-P/Q) /Q/np.sin(np.arccos(-P/Q)) 
+        tau_list.append(tau)
+
+        print(seed, tau)
+    return tau_list
+
+
+def evolution_single(network_type, N, beta, betaeffect, seed, arguments, d1, d2, d3, d):
+    """TODO: Docstring for evolution.
+
+    :arg1: TODO
+    :returns: TODO
+
+    """
+    A, A_interaction, index_i, index_j, cum_index = network_generate(network_type, N, beta, betaeffect, seed, d)
+    xs_low, xs_high = stable_state(A, A_interaction, index_i, index_j, cum_index, arguments)
+    x_fix = np.mean(xs_high)
+    initial_condition = np.ones(1) * 5 
+    t = np.arange(0, 500,0.001)
+    t1 = time.time()
+
+    degree= np.sum(A>0, 0)
+    w = np.sum(A[np.argmax(degree)])
+    dyn_all = ddeint_Cheng(one_single_delay, initial_condition, t, *(d1, d2, d3, w, x_fix, arguments))
+    
+    xs = ddeint_Cheng(one_single_delay, initial_condition, t, *(0, 0, 0, w, x_fix, arguments))[-1]
+
+    B, C, D, E, H, K = arguments
+    P =  - (w * x_fix)/(D + E * xs + H * x_fix) + (w * E * xs * x_fix)/(D + E * xs + H * x_fix)**2 -(1-xs/K) * (2*xs/C-1)
+
+    Q = xs/K*(xs/C-1)
+    tau = np.arccos(-P/Q) /Q/np.sin(np.arccos(-P/Q)) 
+
+    t2 = time.time()
+    print(t2-t1)
+    plt.plot(t, dyn_all, alpha = alpha)
+    #plt.plot(t, dyn_all, alpha = alpha)
+    plt.subplots_adjust(left=0.18, right=0.98, wspace=0.25, hspace=0.25, bottom=0.18, top=0.98)
+    plt.xticks(fontsize=ticksize)
+    plt.yticks(fontsize=ticksize)
+    plt.xlabel('$t$', fontsize= fs)
+    plt.ylabel('$\\langle x \\rangle$', fontsize =fs)
+    #plt.show()
+    return dyn_all, tau
+
 
 
 imag = 1j
@@ -263,46 +458,61 @@ d_set = [2, 2.5, 3, 3.5, 4, 4.5, 5]
 d_set = [200, 300, 400, 500]
 network_type = 'real'
 network_type = 'RR'
-network_type = '2D'
 network_type = 'BA'
 network_type = 'star'
 network_type = 'ER'
+network_type = '2D'
 network_type = 'SF'
 seed_set = np.arange(0, 500, 1).tolist()
 beta_set = np.arange(1, 2, 1)
-N_list = [50]
+N_list = [1000]
 
-kmin = [3]
+kmin = [1]
 gamma = [3]
 d_list = np.hstack((np.meshgrid(kmin, gamma)[0], np.meshgrid(kmin, gamma)[1]))
-seed1 = [0]
-seed2 = np.arange(10).tolist()
+d_list = [[3, 2500-2, 1]]
+seed2 = [0]
+seed1 = np.arange(100).tolist()
 seed_list = np.hstack((np.meshgrid(seed1, seed2)[0], np.meshgrid(seed1, seed2)[1])).tolist()
+seed_list = np.vstack((seed1, seed1)).transpose().tolist()
 
+
+'''
 t1 = time.time()
 for N in N_list:
     for d in d_list:
-        tau_multi_critical(network_type, N, arguments, beta_set, seed_list, nu_set = nu_set, tau_set = tau_set, d = d)
+        tau_eigen_parallel(network_type, N, arguments, beta_set, seed_list, nu_set = nu_set, tau_set = tau_set, d = d)
 t2 = time.time()
 print(t2 -t1)
+'''
 
+betaeffect = 1
 beta = 1
 d1 = 0.31
 d2 = 0
 d3 = 0
 seed = 499
 
-seed = [0, 5]
+seed = [99, 99]
 delay1 = 0.2
-delay2 = 0.4
+delay2 = 0.3
 criteria_delay = 1e-3
-criteria_dyn = 1e-6
-d = [3, 3]
-'''
+criteria_dyn = 1e-9
+d = [3, 999, 3]
+
 t1 = time.time()
-tau = tau_evolution_parallel(network_type, N, beta, seed_list, arguments, delay1, delay2, criteria_delay, criteria_dyn, d)
+tau = tau_evolution_parallel(network_type, N, beta, betaeffect, seed_list, arguments, delay1, delay2, criteria_delay, criteria_dyn, d)
 t2 = time.time()
 print(t2 - t1)
-'''
 
-#dyn_all = evolution(network_type, N, beta, seed, arguments, 0.24, 0, 0, d)
+#dyn_all = evolution(network_type, N, beta, seed, arguments, 0.268, 0, 0, d)
+
+delay = 0.25
+N = 1000
+betaeffect = 1
+beta = 1
+d = [3, 999, 3]
+seed = [0, 0]
+#dyn = evolution_analysis(network_type, N, beta, betaeffect, seed, d, delay)
+#tau = tau_kmax(network_type, N, d, beta, betaeffect, arguments, seed_list)
+#dyn, tau = evolution_single(network_type, N, beta, betaeffect, seed, arguments, delay, 0, 0, d)
