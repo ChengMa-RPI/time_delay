@@ -167,12 +167,13 @@ def eigenvalue_zero(x, A, fx, fxt, Degree, gx_i, gx_j):
     """
     imag = 1j
     tau, nu = x
-    M = np.diagflat(nu * imag - fx - fxt * np.exp(- nu * tau * imag) - Degree * gx_i) - A * gx_j 
+    #M = np.diagflat(nu * imag - fx - fxt * np.exp(- nu * tau * imag) - Degree * gx_i) - A * gx_j 
+    M = np.diagflat(nu * imag - fx - fxt * np.exp(- nu * tau * imag) - gx_i) - gx_j 
     eigenvalue, eigenvector = np.linalg.eig(M)
     zeropoint = eigenvalue[np.argmin(np.abs(eigenvalue))]
     return np.array([np.real(zeropoint), np.imag(zeropoint)])
 
-def tau_eigenvalue(network_type, N, beta, nu_set, tau_set, arguments, seed, d=None):
+def tau_eigenvalue(network_type, N, beta, betaeffect, nu_set, tau_set, arguments, seed, d):
     """TODO: Docstring for character_multi.
 
     :x: TODO
@@ -181,15 +182,19 @@ def tau_eigenvalue(network_type, N, beta, nu_set, tau_set, arguments, seed, d=No
 
     """
     B, C, D, E, H, K = arguments
-    A, A_interaction, index_i, index_j, cum_index = network_generate(network_type, N, beta, seed, d)
+    A, A_interaction, index_i, index_j, cum_index = network_generate(network_type, N, beta, betaeffect, seed, d)
     degree_weighted = np.sum(A, 0)
     xs_low, xs_high = stable_state(A, A_interaction, index_i, index_j, cum_index, arguments)
     xs = xs_high
 
     fx = (1-xs/K) * (2*xs/C-1)
     fxt = -xs/K*(xs/C-1)
-    gx_i = xs/(D + E*xs + H*xs) - E * xs**2 / (D + E*xs + H*xs)**2
-    gx_j = xs/(D + E*xs + H*xs) - H * xs**2 / (D + E*xs + H*xs)**2
+    xs_T = xs.reshape(len(xs), 1)
+    denominator = D + E * xs + H * xs_T
+    gx_i = np.sum(A * (xs_T/denominator + E * xs * xs_T/denominator ** 2 ), 0)
+    gx_j = A * (xs/denominator + H * xs * xs_T/denominator ** 2 )
+    #gx_i = xs/(D + E*xs + H*xs) - E * xs**2 / (D + E*xs + H*xs)**2
+    #gx_j = xs/(D + E*xs + H*xs) - H * xs**2 / (D + E*xs + H*xs)**2
 
     tau_sol = []
     for initial_condition in np.array(np.meshgrid(tau_set, nu_set)).reshape(2, int(np.size(tau_set) * np.size(nu_set))).transpose():
@@ -217,10 +222,11 @@ def tau_eigenvalue(network_type, N, beta, nu_set, tau_set, arguments, seed, d=No
     else:
         df = pd.DataFrame(data.reshape(1, np.size(data)))
         df.to_csv(des_file, index=None, header=None, mode='a')
+    print(seed)
 
     return None
 
-def tau_eigen_parallel(network_type, N, arguments, beta_set, seed_list, d=None, nu_set=None, tau_set=None, low=0.1, high=10):
+def tau_eigen_parallel(network_type, N, arguments, beta_set, betaeffect, seed_list, d=None, nu_set=None, tau_set=None, low=0.1, high=10):
     """TODO: Docstring for tau_critical.
 
     :arg1: TODO
@@ -230,7 +236,7 @@ def tau_eigen_parallel(network_type, N, arguments, beta_set, seed_list, d=None, 
     for beta, i in zip(beta_set, range(np.size(beta_set))):
         t1 = time.time()
         p = mp.Pool(cpu_number)
-        p.starmap_async(tau_eigenvalue, [(network_type, N, beta, nu_set, tau_set, arguments, seed, d) for seed in seed_list]).get()
+        p.starmap_async(tau_eigenvalue, [(network_type, N, beta, betaeffect, nu_set, tau_set, arguments, seed, d) for seed in seed_list]).get()
         p.close()
         p.join()
 
@@ -345,13 +351,13 @@ def evolution_analysis(network_type, N, beta, betaeffect, seed, d, delay):
     N = np.size(A, 0)
     initial_condition = xs_high - 0.0001
     initial_condition = np.ones(N) * 5
-    t = np.arange(0, 100, 0.01)
-    dyn_all = ddeint_Cheng(mutual_multi_delay, initial_condition, t, *(delay, 0, 0, N, index_i, index_j, A_interaction, cum_index, arguments))
+    t = np.arange(0, 50, 0.0001)
+    #dyn_all = ddeint_Cheng(mutual_multi_delay, initial_condition, t, *(delay, 0, 0, N, index_i, index_j, A_interaction, cum_index, arguments))
     #dyn_all = ddeint_Cheng(mutual_single_delay, initial_condition, t, *(delay, 0, 0, N, [974], index_i, index_j, A_interaction, cum_index, arguments))
     w = np.sum(A[np.argmax(degree)])
     initial_condition = np.ones(1) * 5
-    #dyn_all = ddeint_Cheng(one_single_delay, initial_condition, t, *(delay, 0, 0, w, np.mean(xs_high), arguments))
-    #xs_high = ddeint_Cheng(one_single_delay, initial_condition, t, *(0, 0, 0, w, np.mean(xs_high), arguments))
+    dyn_all = ddeint_Cheng(one_single_delay, initial_condition, t, *(delay, 0, 0, w, np.mean(xs_high), arguments))
+    xs_high = ddeint_Cheng(one_single_delay, initial_condition, t, *(0, 0, 0, w, np.mean(xs_high), arguments))
 
     diff = dyn_all - xs_high
     peaks = []
@@ -464,6 +470,7 @@ network_type = 'ER'
 network_type = '2D'
 network_type = 'SF'
 seed_set = np.arange(0, 500, 1).tolist()
+betaeffect = 1
 beta_set = np.arange(1, 2, 1)
 N_list = [1000]
 
@@ -476,15 +483,13 @@ seed1 = np.arange(100).tolist()
 seed_list = np.hstack((np.meshgrid(seed1, seed2)[0], np.meshgrid(seed1, seed2)[1])).tolist()
 seed_list = np.vstack((seed1, seed1)).transpose().tolist()
 
-
-'''
+d_list = [[3, 999, 3]]
 t1 = time.time()
 for N in N_list:
     for d in d_list:
-        tau_eigen_parallel(network_type, N, arguments, beta_set, seed_list, nu_set = nu_set, tau_set = tau_set, d = d)
+        tau_eigen_parallel(network_type, N, arguments, beta_set, betaeffect, seed_list, nu_set = nu_set, tau_set = tau_set, d = d)
 t2 = time.time()
 print(t2 -t1)
-'''
 
 betaeffect = 1
 beta = 1
@@ -500,19 +505,21 @@ criteria_delay = 1e-3
 criteria_dyn = 1e-9
 d = [3, 999, 3]
 
+'''
 t1 = time.time()
 tau = tau_evolution_parallel(network_type, N, beta, betaeffect, seed_list, arguments, delay1, delay2, criteria_delay, criteria_dyn, d)
 t2 = time.time()
 print(t2 - t1)
+'''
 
 #dyn_all = evolution(network_type, N, beta, seed, arguments, 0.268, 0, 0, d)
 
-delay = 0.25
+delay = 0.262
 N = 1000
 betaeffect = 1
 beta = 1
 d = [3, 999, 3]
 seed = [0, 0]
-#dyn = evolution_analysis(network_type, N, beta, betaeffect, seed, d, delay)
+dyn = evolution_analysis(network_type, N, beta, betaeffect, seed, d, delay)
 #tau = tau_kmax(network_type, N, d, beta, betaeffect, arguments, seed_list)
 #dyn, tau = evolution_single(network_type, N, beta, betaeffect, seed, arguments, delay, 0, 0, d)
