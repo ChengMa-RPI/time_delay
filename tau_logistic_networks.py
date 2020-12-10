@@ -191,8 +191,8 @@ def tau_eigenvalue(network_type, N, beta, betaeffect, nu_set, tau_set, arguments
     fxt = -xs/K*(xs/C-1)
     xs_T = xs.reshape(len(xs), 1)
     denominator = D + E * xs + H * xs_T
-    gx_i = np.sum(A * (xs_T/denominator + E * xs * xs_T/denominator ** 2 ), 0)
-    gx_j = A * (xs/denominator + H * xs * xs_T/denominator ** 2 )
+    gx_i = np.sum(A * (xs_T/denominator - E * xs * xs_T/denominator ** 2 ), 0)
+    gx_j = A * (xs/denominator - H * xs * xs_T/denominator ** 2 )
     #gx_i = xs/(D + E*xs + H*xs) - E * xs**2 / (D + E*xs + H*xs)**2
     #gx_j = xs/(D + E*xs + H*xs) - H * xs**2 / (D + E*xs + H*xs)**2
 
@@ -215,7 +215,11 @@ def tau_eigenvalue(network_type, N, beta, betaeffect, nu_set, tau_set, arguments
     des = '../data/'
     if not os.path.exists(des):
         os.makedirs(des)
-    des_file = des + network_type + f'_N={N}_d=' + str(d) + '_logistic.csv'
+    if betaeffect:
+        des_file = des + network_type + f'_N={N}_d=' + str(d) + '_wt_logistic.csv'
+    else:
+        des_file = des + network_type + f'_N={N}_d=' + str(d) + '_beta_logistic.csv'
+
     if not os.path.exists(des_file):
         df = pd.DataFrame(data.reshape(1, np.size(data)), columns = column_name)
         df.to_csv(des_file, index=None, mode='a')
@@ -347,17 +351,21 @@ def evolution_analysis(network_type, N, beta, betaeffect, seed, d, delay):
 
     A, A_interaction, index_i, index_j, cum_index = network_generate(network_type, N, beta, betaeffect, seed, d)
     xs_low, xs_high = stable_state(A, A_interaction, index_i, index_j, cum_index, arguments)
+    beta_eff, _ = betaspace(A, [0])
     degree= np.sum(A>0, 0)
     N = np.size(A, 0)
-    initial_condition = xs_high - 0.0001
     initial_condition = np.ones(N) * 5
-    t = np.arange(0, 50, 0.0001)
+    initial_condition = xs_high - 0.0001
+    t = np.arange(0, 50, 0.001)
     #dyn_all = ddeint_Cheng(mutual_multi_delay, initial_condition, t, *(delay, 0, 0, N, index_i, index_j, A_interaction, cum_index, arguments))
-    #dyn_all = ddeint_Cheng(mutual_single_delay, initial_condition, t, *(delay, 0, 0, N, [974], index_i, index_j, A_interaction, cum_index, arguments))
+    dyn_all = ddeint_Cheng(mutual_single_delay, initial_condition, t, *(delay, 0, 0, N, [np.argmax(degree)], index_i, index_j, A_interaction, cum_index, arguments))
     w = np.sum(A[np.argmax(degree)])
-    initial_condition = np.ones(1) * 5
-    dyn_all = ddeint_Cheng(one_single_delay, initial_condition, t, *(delay, 0, 0, w, np.mean(xs_high), arguments))
-    xs_high = ddeint_Cheng(one_single_delay, initial_condition, t, *(0, 0, 0, w, np.mean(xs_high), arguments))
+    initial_condition = np.array([xs_high.max()])
+    xs_eff = fsolve(mutual_1D, initial_condition, args=(0, beta_eff, arguments))
+    xs_eff = np.mean(xs_high)
+    print(xs_eff)
+    #dyn_all = ddeint_Cheng(one_single_delay, initial_condition, t, *(delay, 0, 0, w, xs_eff, arguments))
+    #xs_high = ddeint_Cheng(one_single_delay, initial_condition, t, *(0, 0, 0, w, xs_eff, arguments))[-1]
 
     diff = dyn_all - xs_high
     peaks = []
@@ -388,6 +396,7 @@ def tau_kmax(network_type, N, d, beta, betaeffect, arguments, seed_list):
 
     """
     tau_list = []
+    degree_max = []
     B, C, D, E, H, K = arguments
     for seed in seed_list:
         A, A_interaction, index_i, index_j, cum_index = network_generate(network_type, N, beta, betaeffect, seed, d)
@@ -396,15 +405,15 @@ def tau_kmax(network_type, N, d, beta, betaeffect, arguments, seed_list):
         w = np.sum(A[index])
         xs_low, xs_high = stable_state(A, A_interaction, index_i, index_j, cum_index, arguments)
         x_fix = np.mean(xs_high)
-        #xs = ddeint_Cheng(one_single_delay, np.ones(1), np.arange(0, 100, 0.01), *(0, 0, 0, w, x_fix, arguments))[-1]
-        xs = fsolve(one_kmax, np.ones(1) * 5, args=(w, x_fix, arguments))
+        xs = ddeint_Cheng(one_single_delay, np.ones(1)*5, np.arange(0, 500, 0.01), *(0, 0, 0, w, x_fix, arguments))[-1]
+        #xs = fsolve(one_kmax, np.ones(1) * 10, args=(w, x_fix, arguments))
         P =  - (w * x_fix)/(D + E * xs + H * x_fix) + (w * E * xs * x_fix)/(D + E * xs + H * x_fix)**2 -(1-xs/K) * (2*xs/C-1)
         Q = xs/K*(xs/C-1)
         tau = np.arccos(-P/Q) /Q/np.sin(np.arccos(-P/Q)) 
         tau_list.append(tau)
-
-        print(seed, tau)
-    return tau_list
+        degree_max.append(degree[index])
+        print(seed, tau, P, Q)
+    return tau_list, degree_max
 
 
 def evolution_single(network_type, N, beta, betaeffect, seed, arguments, d1, d2, d3, d):
@@ -483,7 +492,8 @@ seed1 = np.arange(100).tolist()
 seed_list = np.hstack((np.meshgrid(seed1, seed2)[0], np.meshgrid(seed1, seed2)[1])).tolist()
 seed_list = np.vstack((seed1, seed1)).transpose().tolist()
 
-d_list = [[3, 999, 3]]
+d_list = [[3, 99, 3]]
+N_list = [100]
 t1 = time.time()
 for N in N_list:
     for d in d_list:
@@ -514,12 +524,12 @@ print(t2 - t1)
 
 #dyn_all = evolution(network_type, N, beta, seed, arguments, 0.268, 0, 0, d)
 
-delay = 0.262
-N = 1000
-betaeffect = 1
-beta = 1
-d = [3, 999, 3]
-seed = [0, 0]
-dyn = evolution_analysis(network_type, N, beta, betaeffect, seed, d, delay)
-#tau = tau_kmax(network_type, N, d, beta, betaeffect, arguments, seed_list)
+delay = 0.7
+N = 100
+betaeffect = 0
+beta = 0.1
+d = [3, 99, 3]
+seed = [93, 93]
+#dyn = evolution_analysis(network_type, N, beta, betaeffect, seed, d, delay)
+tau = tau_kmax(network_type, N, d, beta, betaeffect, arguments, seed_list)
 #dyn, tau = evolution_single(network_type, N, beta, betaeffect, seed, arguments, delay, 0, 0, d)
