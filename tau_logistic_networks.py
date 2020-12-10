@@ -216,9 +216,9 @@ def tau_eigenvalue(network_type, N, beta, betaeffect, nu_set, tau_set, arguments
     if not os.path.exists(des):
         os.makedirs(des)
     if betaeffect:
-        des_file = des + network_type + f'_N={N}_d=' + str(d) + '_wt_logistic.csv'
+        des_file = des + network_type + f'_N={N}_d=' + str(d) + '_beta=' + str(beta) + '_logistic.csv'
     else:
-        des_file = des + network_type + f'_N={N}_d=' + str(d) + '_beta_logistic.csv'
+        des_file = des + network_type + f'_N={N}_d=' + str(d) + '_wt=' + str(beta) + '_logistic.csv'
 
     if not os.path.exists(des_file):
         df = pd.DataFrame(data.reshape(1, np.size(data)), columns = column_name)
@@ -398,6 +398,14 @@ def tau_kmax(network_type, N, d, beta, betaeffect, arguments, seed_list):
     tau_list = []
     degree_max = []
     B, C, D, E, H, K = arguments
+    des = '../data/'
+    if not os.path.exists(des):
+        os.makedirs(des)
+    if betaeffect:
+        des_file = des + network_type + f'_N={N}_d=' + str(d) + '_kmax_beta=' + str(beta) + '_logistic.csv'
+    else:
+        des_file = des + network_type + f'_N={N}_d=' + str(d) + '_kmax_wt=' + str(beta) + '_logistic.csv'
+
     for seed in seed_list:
         A, A_interaction, index_i, index_j, cum_index = network_generate(network_type, N, beta, betaeffect, seed, d)
         degree = np.sum(A>0, 0)
@@ -412,9 +420,20 @@ def tau_kmax(network_type, N, d, beta, betaeffect, arguments, seed_list):
         tau = np.arccos(-P/Q) /Q/np.sin(np.arccos(-P/Q)) 
         tau_list.append(tau)
         degree_max.append(degree[index])
-        print(seed, tau, P, Q)
-    return tau_list, degree_max
+        data = np.hstack((seed, degree[index], tau))
+     
+        column_name = [f'seed{i}' for i in range(np.size(seed))]
+        column_name.extend(['kmax', str(beta) ])
 
+        if not os.path.exists(des_file):
+            df = pd.DataFrame(data.reshape(1, np.size(data)), columns = column_name)
+            df.to_csv(des_file, index=None, mode='a')
+        else:
+            df = pd.DataFrame(data.reshape(1, np.size(data)))
+            df.to_csv(des_file, index=None, header=None, mode='a')
+    print(seed, tau)
+
+    return tau_list, degree_max
 
 def evolution_single(network_type, N, beta, betaeffect, seed, arguments, d1, d2, d3, d):
     """TODO: Docstring for evolution.
@@ -492,14 +511,16 @@ seed1 = np.arange(100).tolist()
 seed_list = np.hstack((np.meshgrid(seed1, seed2)[0], np.meshgrid(seed1, seed2)[1])).tolist()
 seed_list = np.vstack((seed1, seed1)).transpose().tolist()
 
-d_list = [[3, 99, 3]]
-N_list = [100]
+d_list = [[3, 49, 3]]
+N_list = [50]
+'''
 t1 = time.time()
 for N in N_list:
     for d in d_list:
         tau_eigen_parallel(network_type, N, arguments, beta_set, betaeffect, seed_list, nu_set = nu_set, tau_set = tau_set, d = d)
 t2 = time.time()
 print(t2 -t1)
+'''
 
 betaeffect = 1
 beta = 1
@@ -525,11 +546,13 @@ print(t2 - t1)
 #dyn_all = evolution(network_type, N, beta, seed, arguments, 0.268, 0, 0, d)
 
 delay = 0.7
-N = 100
+N = 1000
 betaeffect = 0
 beta = 0.1
-d = [3, 99, 3]
+beta_list = [0.05, 0.1, 0.2]
+d = [3, 999, 3]
 seed = [93, 93]
 #dyn = evolution_analysis(network_type, N, beta, betaeffect, seed, d, delay)
-tau = tau_kmax(network_type, N, d, beta, betaeffect, arguments, seed_list)
+for beta in beta_list:
+    tau = tau_kmax(network_type, N, d, beta, betaeffect, arguments, seed_list)
 #dyn, tau = evolution_single(network_type, N, beta, betaeffect, seed, arguments, delay, 0, 0, d)
