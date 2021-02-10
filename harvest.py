@@ -234,7 +234,7 @@ class Net_Dyn:
         print(seed, tau_critical)
         return tau_critical
 
-    def eigen_parallel(self):
+    def eigen_parallel(self, function):
         """TODO: Docstring for tau_critical.
 
         :arg1: TODO
@@ -242,7 +242,10 @@ class Net_Dyn:
 
         """
         p = mp.Pool(cpu_number)
-        p.starmap_async(self.eigen_solution, [(seed, ) for seed in self.seed_list]).get()
+        if function == 'eigen':
+            p.starmap_async(self.eigen_solution, [(seed, ) for seed in self.seed_list]).get()
+        elif function == 'decouple_two':
+            p.starmap_async(self.tau_decouple_two, [(seed, ) for seed in self.seed_list]).get()
         p.close()
         p.join()
         return None
@@ -357,120 +360,120 @@ class Net_Dyn:
 
         return None
 
-    def tau_decouple_two(self):
+    def tau_decouple_two(self, seed):
         """TODO: Docstring for tau_kmax.
 
         :returns: TODO
 
         """
-        network_type, N, beta, d, dynamics, attractor_value, arguments, seed_list, tau_list, nu_list  = self.network_type, self.N, self.beta, self.d, self.dynamics, self.attractor_value, self.arguments, self.seed_list, self.tau_list, self.nu_list
+        network_type, N, beta, d, dynamics, attractor_value, arguments, tau_list, nu_list  = self.network_type, self.N, self.beta, self.d, self.dynamics, self.attractor_value, self.arguments, self.tau_list, self.nu_list
         des = '../data/' + dynamics + '/' + network_type + '/' 
         if not os.path.exists(des):
             os.makedirs(des)
         des_file = des + f'_N={N}_d=' + str(d) + '_beta=' + str(beta) + '_decouple_two_logistic.csv'
 
         t = np.arange(0, 1000, 0.01)
-        for seed in seed_list:
-            A, A_interaction, index_i, index_j, cum_index = network_generate(network_type, N, beta, 1, seed, d)
-            beta_eff, _ = betaspace(A, [0])
-            wk = np.sum(A, 0)
-            index_list = np.argsort(wk)[-10:]
-            index_list = np.argsort(wk)
-            tau_individual = []
-            for index in index_list:
-                w = np.sum(A[index])
-                if dynamics == 'mutual':
-                    B, C, D, E, H, K = arguments
-                    xs = odeint(mutual_decouple_two, np.ones(2) * attractor_value, t, args=(w, beta_eff, arguments))[-1]
-                    fx = (1-xs/K) * (2*xs/C-1)
-                    fxt = -xs/K*(xs/C-1)
-                    g11 = w * (xs[1] /(D + E*xs[0] + H*xs[1]) - E*xs[0]*xs[1] /(D + E*xs[0] + H*xs[1])**2)
-                    g12 = w * (xs[0] /(D + E*xs[0] + H*xs[1]) - H*xs[0]*xs[1] /(D + E*xs[0] + H*xs[1])**2)
-                    g21 = 0
-                    g22 = beta_eff * (2*xs[1]/(D+E*xs[1]+H*xs[1]) - xs[1]**2 * (E+H) /(D+E*xs[1]+H*xs[1])**2)
 
-                elif dynamics == 'harvest':
-                    r, K, c = arguments
-                    xs = odeint(harvest_decouple_two, np.ones(2) * attractor_value, t, args=(w, beta_eff, arguments))[-1]
-                    fx = r * (1-xs/K) - 2 * c * xs / (xs**2+1)**2
-                    fxt = -r * xs  / K
-                    g11 = -w
-                    g12 = w 
-                    g21 = 0
-                    g22 = 0
+        A, A_interaction, index_i, index_j, cum_index = network_generate(network_type, N, beta, 1, seed, d)
+        beta_eff, _ = betaspace(A, [0])
+        wk = np.sum(A, 0)
+        index_list = np.argsort(wk)[-10:]
+        index_list = np.argsort(wk)
+        tau_individual = []
+        for index in index_list:
+            w = np.sum(A[index])
+            if dynamics == 'mutual':
+                B, C, D, E, H, K = arguments
+                xs = odeint(mutual_decouple_two, np.ones(2) * attractor_value, t, args=(w, beta_eff, arguments))[-1]
+                fx = (1-xs/K) * (2*xs/C-1)
+                fxt = -xs/K*(xs/C-1)
+                g11 = w * (xs[1] /(D + E*xs[0] + H*xs[1]) - E*xs[0]*xs[1] /(D + E*xs[0] + H*xs[1])**2)
+                g12 = w * (xs[0] /(D + E*xs[0] + H*xs[1]) - H*xs[0]*xs[1] /(D + E*xs[0] + H*xs[1])**2)
+                g21 = 0
+                g22 = beta_eff * (2*xs[1]/(D+E*xs[1]+H*xs[1]) - xs[1]**2 * (E+H) /(D+E*xs[1]+H*xs[1])**2)
 
-                elif dynamics == 'genereg':
-                    B, = arguments
-                    xs = odeint(genereg_decouple_two, np.ones(2) * attractor_value, t, args=(w, beta_eff, arguments))[-1]
-                    fx = 0
-                    fxt = -B * np.ones(2)
-                    g11 = 0
-                    g12 = w * 2 * xs[1] / (xs[1]**2 + 1)**2
-                    g21 = 0
-                    g22 = beta * 2 * xs[1] / (xs[1]**2 + 1)**2
+            elif dynamics == 'harvest':
+                r, K, c = arguments
+                xs = odeint(harvest_decouple_two, np.ones(2) * attractor_value, t, args=(w, beta_eff, arguments))[-1]
+                fx = r * (1-xs/K) - 2 * c * xs / (xs**2+1)**2
+                fxt = -r * xs  / K
+                g11 = -w
+                g12 = w 
+                g21 = 0
+                g22 = 0
 
-                elif dynamics == 'SIS':
-                    B, = arguments
-                    xs = odeint(SIS_decouple_two, np.ones(2) * attractor_value, t, args=(w, beta_eff, arguments))[-1]
-                    fx = 0
-                    fxt = -B * np.ones(2)
-                    g11 = - w * xs[1]
-                    g12 = w  * (1 - xs[0])
-                    g21 = 0
-                    g22 = beta * (1 - 2 * xs[1])
+            elif dynamics == 'genereg':
+                B, = arguments
+                xs = odeint(genereg_decouple_two, np.ones(2) * attractor_value, t, args=(w, beta_eff, arguments))[-1]
+                fx = 0
+                fxt = -B * np.ones(2)
+                g11 = 0
+                g12 = w * 2 * xs[1] / (xs[1]**2 + 1)**2
+                g21 = 0
+                g22 = beta * 2 * xs[1] / (xs[1]**2 + 1)**2
 
-                elif dynamics == 'BDP':
-                    B, = arguments
-                    xs = odeint(BDP_decouple_two, np.ones(2) * attractor_value, t, args=(w, beta_eff, arguments))[-1]
-                    fx = 0
-                    fxt = -B * 2 * xs
-                    g11 = 0
-                    g12 = w 
-                    g21 = 0
-                    g22 = beta 
+            elif dynamics == 'SIS':
+                B, = arguments
+                xs = odeint(SIS_decouple_two, np.ones(2) * attractor_value, t, args=(w, beta_eff, arguments))[-1]
+                fx = 0
+                fxt = -B * np.ones(2)
+                g11 = - w * xs[1]
+                g12 = w  * (1 - xs[0])
+                g21 = 0
+                g22 = beta * (1 - 2 * xs[1])
 
-                elif dynamics == 'PPI':
-                    B, F = arguments
-                    xs = odeint(PPI_decouple_two, np.ones(2) * attractor_value, t, args=(w, beta_eff, arguments))[-1]
-                    fx = 0
-                    fxt = -B  * np.ones(2)
-                    g11 = - w * xs[1]
-                    g12 = - w * xs[0] 
-                    g21 = 0
-                    g22 = - beta * 2 * xs[1]  
+            elif dynamics == 'BDP':
+                B, = arguments
+                xs = odeint(BDP_decouple_two, np.ones(2) * attractor_value, t, args=(w, beta_eff, arguments))[-1]
+                fx = 0
+                fxt = -B * 2 * xs
+                g11 = 0
+                g12 = w 
+                g21 = 0
+                g22 = beta 
 
-                elif dynamics == 'CW':
-                    a, b = arguments
-                    xs = odeint(CW_decouple_two, np.ones(2) * attractor_value, t, args=(w, beta_eff, arguments))[-1]
-                    fx = 0
-                    fxt = -1 * np.ones(2)
-                    g11 = 0
-                    g12 = w * b * np.exp(a - b * xs[1]) / (1 + np.exp(a - b * xs[1])) ** 2
-                    g21 = 0
-                    g22 = beta * b * np.exp(a - b * xs[1]) / (1 + np.exp(a - b * xs[1])) ** 2 
+            elif dynamics == 'PPI':
+                B, F = arguments
+                xs = odeint(PPI_decouple_two, np.ones(2) * attractor_value, t, args=(w, beta_eff, arguments))[-1]
+                fx = 0
+                fxt = -B  * np.ones(2)
+                g11 = - w * xs[1]
+                g12 = - w * xs[0] 
+                g21 = 0
+                g22 = - beta * 2 * xs[1]  
 
-                g_matrix = np.array([[g11, g12], [g21, g22]])
+            elif dynamics == 'CW':
+                a, b = arguments
+                xs = odeint(CW_decouple_two, np.ones(2) * attractor_value, t, args=(w, beta_eff, arguments))[-1]
+                fx = 0
+                fxt = -1 * np.ones(2)
+                g11 = 0
+                g12 = w * b * np.exp(a - b * xs[1]) / (1 + np.exp(a - b * xs[1])) ** 2
+                g21 = 0
+                g22 = beta * b * np.exp(a - b * xs[1]) / (1 + np.exp(a - b * xs[1])) ** 2 
 
-                tau_sol = []
-                for initial_condition in np.array(np.meshgrid(tau_list, nu_list)).reshape(2, int(np.size(tau_list) * np.size(nu_list))).transpose():
-                    tau_solution, nu_solution = fsolve(eigen_two_decouple, initial_condition, args=(fx, fxt, g_matrix))
-                    eigen_real, eigen_imag = eigen_two_decouple(np.array([tau_solution, nu_solution]), fx, fxt, g_matrix)
-                    #tau_solution, nu_solution = fsolve(determinant_two_decouple, initial_condition, args=(fx, fxt, g_matrix))
-                    #eigen_real, eigen_imag = determinant_two_decouple(np.array([tau_solution, nu_solution]), fx, fxt, g_matrix)
-                    if abs(eigen_real) < 1e-5 and abs(eigen_imag) < 1e-5:
-                        tau_sol.append(tau_solution)
-                tau_sol = np.array(tau_sol)
-                if np.size(tau_sol[tau_sol>0]):
-                    tau = np.min(tau_sol[tau_sol>0])
-                    tau_individual.append(tau)
+            g_matrix = np.array([[g11, g12], [g21, g22]])
 
-            tau = np.min(tau_individual)
-            data = np.hstack((seed, wk.max(), tau))
-         
-            column_name = [f'seed{i}' for i in range(np.size(seed))]
-            column_name.extend(['kmax', 'tau'])
-            self.save_data(des_file, data, column_name)
-            print(seed, tau)
+            tau_sol = []
+            for initial_condition in np.array(np.meshgrid(tau_list, nu_list)).reshape(2, int(np.size(tau_list) * np.size(nu_list))).transpose():
+                tau_solution, nu_solution = fsolve(eigen_two_decouple, initial_condition, args=(fx, fxt, g_matrix))
+                eigen_real, eigen_imag = eigen_two_decouple(np.array([tau_solution, nu_solution]), fx, fxt, g_matrix)
+                #tau_solution, nu_solution = fsolve(determinant_two_decouple, initial_condition, args=(fx, fxt, g_matrix))
+                #eigen_real, eigen_imag = determinant_two_decouple(np.array([tau_solution, nu_solution]), fx, fxt, g_matrix)
+                if abs(eigen_real) < 1e-5 and abs(eigen_imag) < 1e-5:
+                    tau_sol.append(tau_solution)
+            tau_sol = np.array(tau_sol)
+            if np.size(tau_sol[tau_sol>0]):
+                tau = np.min(tau_sol[tau_sol>0])
+                tau_individual.append(tau)
+
+        tau = np.min(tau_individual)
+        data = np.hstack((seed, wk.max(), tau))
+     
+        column_name = [f'seed{i}' for i in range(np.size(seed))]
+        column_name.extend(['kmax', 'tau'])
+        self.save_data(des_file, data, column_name)
+        print(seed, tau)
 
         return None
 
@@ -1514,16 +1517,16 @@ network_type = 'SF'
 network_type = 'ER'
 N = 100
 d = [3, 99, 3]
-d = 100
+d = 200
 dynamics = 'mutual'
-dynamics = 'SIS'
 dynamics = 'BDP'
 dynamics = 'PPI'
 dynamics = 'CW'
 dynamics = 'harvest'
 dynamics = 'genereg'
+dynamics = 'SIS'
 
-beta = 4
+beta = 2.9
 betaeffect = 1
 seed1 = np.arange(100).tolist()
 seed_list = np.vstack((seed1, seed1)).transpose().tolist()
@@ -1545,12 +1548,12 @@ b = 1
 
 attractor_value = 5.0
 arguments = (B, C, D, E, H, K_mutual)
-arguments = (B_SIS, )
 arguments = (B_BDP, )
 arguments = (B_PPI, F_PPI)
 arguments = (a, b)
 arguments = (r, K, c)
 arguments = (B_gene, )
+arguments = (B_SIS, )
 
 
 "harvest"
@@ -1573,16 +1576,22 @@ nu_list = np.arange(0.1, 1, 0.2)
 tau_list = np.arange(0.1, 5, 0.5)
 nu_list = np.arange(0, 2, 0.5)
 
+"PPI"
+tau_list = np.arange(0.1, 2, 0.5)
+nu_list = np.arange(0, 2, 0.5)
 
 
 wk_list = np.arange(0.1, 20, 0.1)
-n = Net_Dyn(network_type, N, beta, betaeffect, seed_list, d, dynamics, attractor_value, arguments, tau_list, nu_list)
-
-t1 = time.time()
-n.eigen_parallel()
-#tau = n.tau_1D()
 #n.tau_decouple_eff()
 #n.tau_decouple_two()
 #n.tau_decouple_wk(wk_list)
-t2 = time.time()
-#print(t2-t1)
+
+
+for d in d_list:
+    n = Net_Dyn(network_type, N, beta, betaeffect, seed_list, d, dynamics, attractor_value, arguments, tau_list, nu_list)
+    t1 = time.time()
+    n.eigen_parallel('decouple_two')
+    n.eigen_parallel('eigen')
+    #tau = n.tau_1D()
+    t2 = time.time()
+    #print(t2-t1)
