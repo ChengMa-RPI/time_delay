@@ -75,10 +75,12 @@ class Net_Dyn:
         network_type, N, beta, betaeffect, d, dynamics, attractor_value, arguments  = self.network_type, self.N, self.beta, self.betaeffect, self.d, self.dynamics, self.attractor_value, self.arguments  
 
         A, A_interaction, index_i, index_j, cum_index = network_generate(network_type, N, beta, betaeffect, seed, d)
+        N_actual = np.size(A, 0)
         net_arguments = (index_i, index_j, A_interaction, cum_index)
         self.A = A
+        self.N_actual = N_actual
         self.net_arguments = net_arguments
-        initial_condition = np.ones((N)) * attractor_value
+        initial_condition = np.ones((N_actual)) * attractor_value
         t = np.arange(0, 1000, 0.01)
         if dynamics == 'mutual':
             xs = odeint(mutual_multi, initial_condition, t, args=(arguments, net_arguments))[-1]
@@ -156,7 +158,7 @@ class Net_Dyn:
 
         xs = self.multi_stable(seed)
 
-        network_type, N, beta, betaeffect, d, dynamics, attractor_value, arguments, A, tau_list, nu_list = self.network_type, self.N, self.beta, self.betaeffect, self.d, self.dynamics, self.attractor_value, self.arguments, self.A, self.tau_list, self.nu_list
+        network_type, N, N_actual, beta, betaeffect, d, dynamics, attractor_value, arguments, A, tau_list, nu_list = self.network_type, self.N, self.N_actual, self.beta, self.betaeffect, self.d, self.dynamics, self.attractor_value, self.arguments, self.A, self.tau_list, self.nu_list
         
         if dynamics == 'mutual':
             B, C, D, E, H, K = arguments
@@ -176,7 +178,7 @@ class Net_Dyn:
         elif dynamics == 'genereg':
             B, = arguments
             fx = 0
-            fxt = -B * np.ones(N)
+            fxt = -B * np.ones(N_actual)
             gx_i = 0
             gx_j = A * (2 * xs / (xs**2+1)**2) 
         elif dynamics == 'SIS':
@@ -200,7 +202,7 @@ class Net_Dyn:
         elif dynamics == 'CW':
             a, b = arguments
             fx = 0
-            fxt = -1 * np.ones(N) 
+            fxt = -1 * np.ones(N_actual) 
             gx_i = 0
             gx_j = A * b * np.exp(a - b * xs) / (1 + np.exp(a - b * xs)) ** 2
 
@@ -262,7 +264,7 @@ class Net_Dyn:
         
         elif dynamics == 'harvest':
             r, K, c = arguments
-            P = -r * (1-xs/K) + 2 * c * xs / (xs**2+1)**2 + 0.8
+            P = -r * (1-xs/K) + 2 * c * xs / (xs**2+1)**2 
             Q = r * xs / K
         elif dynamics == 'genereg':
             B, = arguments
@@ -1508,28 +1510,28 @@ def evolution_single(network_type, N, beta, betaeffect, seed, arguments, d1, d2,
 
 
 
-network_type = 'ER'
 network_type = 'SF'
+network_type = 'ER'
 N = 100
-d = 400
 d = [3, 99, 3]
+d = 100
 dynamics = 'mutual'
-dynamics = 'harvest'
-dynamics = 'genereg'
-dynamics = 'PPI'
-dynamics = 'CW'
 dynamics = 'SIS'
 dynamics = 'BDP'
+dynamics = 'PPI'
+dynamics = 'CW'
+dynamics = 'harvest'
+dynamics = 'genereg'
 
 beta = 4
 betaeffect = 1
 seed1 = np.arange(100).tolist()
-seed_list = np.arange(100).tolist()
 seed_list = np.vstack((seed1, seed1)).transpose().tolist()
+seed_list = np.arange(100).tolist()
 
 r= 1
 K= 10
-c = 1.8
+c = 1
 
 B_gene = 1 
 B_SIS = 1
@@ -1543,12 +1545,12 @@ b = 1
 
 attractor_value = 5.0
 arguments = (B, C, D, E, H, K_mutual)
-arguments = (r, K, c)
-arguments = (B_gene, )
-arguments = (B_PPI, F_PPI)
-arguments = (a, b)
 arguments = (B_SIS, )
 arguments = (B_BDP, )
+arguments = (B_PPI, F_PPI)
+arguments = (a, b)
+arguments = (r, K, c)
+arguments = (B_gene, )
 
 
 "harvest"
@@ -1559,13 +1561,17 @@ nu_list = np.arange(0.1, 1.5, 0.5)
 tau_list = np.arange(0.2, 0.5, 0.1)
 nu_list = np.arange(1, 10, 1)
 
+"BDP"
+tau_list = np.arange(0.5, 1, 0.2)
+nu_list = np.arange(1, 5, 2)
+
 "genereg"
 tau_list = np.arange(1, 2, 0.5)
 nu_list = np.arange(0.1, 1, 0.2)
 
-"genereg"
-tau_list = np.arange(0, 0.2, 0.05)
-nu_list = np.arange(5, 10, 1)
+"PPI"
+tau_list = np.arange(0.1, 5, 0.5)
+nu_list = np.arange(0, 2, 0.5)
 
 
 
