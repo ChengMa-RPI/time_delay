@@ -39,6 +39,7 @@ fs = 22
 ticksize = 16
 legendsize = 14
 alpha = 0.8
+lw = 2
 
 
 class Net_Dyn:
@@ -324,26 +325,64 @@ class Net_Dyn:
         t = np.arange(0, 1000, 0.01)
         for seed in seed_list:
             A, A_interaction, index_i, index_j, cum_index = network_generate(network_type, N, beta, betaeffect, seed, d)
+            beta_eff, _ = betaspace(A, [0])
             wk = np.sum(A, 0)
             index_list = np.argsort(wk)
             tau_list = np.ones(len(index_list)) * (-1)
-            x_fix = self.single_stable(beta)
             for index, i in zip(index_list, range(len(index_list))):
                 w = np.sum(A[index])
                 if dynamics == 'mutual':
                     B, C, D, E, H, K = arguments
-                    xs = odeint(mutual_single_one, attractor_value, t, args=(w, x_fix, arguments))[-1]
-                    P =  - (w * x_fix)/(D + E * xs + H * x_fix) + (w * E * xs * x_fix)/(D + E * xs + H * x_fix)**2 -(1-xs/K) * (2*xs/C-1)
-                    Q = xs/K*(xs/C-1)
+                    xs = odeint(mutual_decouple_two, np.ones(2) * attractor_value, t, args=(w, beta_eff, arguments))[-1]
+                    x1, x2 = xs
+                    P =  - (w * x2)/(D + E * x1 + H * x2) + (w * E * x1 * x2)/(D + E * x1 + H * x2)**2 -(1-x1/K) * (2*x1/C-1)
+                    Q = x1/K*(x1/C-1)
 
                 elif dynamics == 'harvest':
                     r, K, c = arguments
-                    xs = odeint(harvest_single, attractor_value, t, args=(arguments,))[-1]
-                    P = -r * (1-xs/K) + 2 * c * xs / (xs**2+1)**2 + w
-                    Q = r * xs / K
+                    xs = odeint(harvest_decouple_two, np.ones(2) * attractor_value, t, args=(w, beta_eff, arguments))[-1]
+                    x1, x2 = xs
+                    P = -r * (1-x1/K) + 2 * c * x1 / (x1**2+1)**2 + w
+                    Q = r * x1 / K
+
+                elif dynamics == 'genereg':
+                    B, = arguments
+                    xs = odeint(genereg_decouple_two, np.ones(2) * attractor_value, t, args=(w, beta_eff, arguments))[-1]
+                    x1, x2 = xs
+                    P = 0
+                    Q = B
+
+                elif dynamics == 'SIS':
+                    B, = arguments
+                    xs = odeint(SIS_decouple_two, np.ones(2) * attractor_value, t, args=(w, beta_eff, arguments))[-1]
+                    x1, x2 = xs
+                    P = w * x2
+                    Q = B
+
+                elif dynamics == 'BDP':
+                    B, = arguments
+                    xs = odeint(BDP_decouple_two, np.ones(2) * attractor_value, t, args=(w, beta_eff, arguments))[-1]
+                    x1, x2 = xs
+                    P = 0
+                    Q = B * 2 * x1
+
+                elif dynamics == 'PPI':
+                    B, F = arguments
+                    xs = odeint(PPI_decouple_two, np.ones(2) * attractor_value, t, args=(w, beta_eff, arguments))[-1]
+                    x1, x2 = xs
+                    P = w * x2
+                    Q = B
+
+                elif dynamics == 'CW':
+                    a, b = arguments
+                    xs = odeint(CW_decouple_two, np.ones(2) * attractor_value, t, args=(w, beta_eff, arguments))[-1]
+                    x1, x2 = xs
+                    P = 0
+                    Q = 1
 
                 if abs(P/Q)<=1:
                     tau_list[i] = np.arccos(-P/Q) /Q/np.sin(np.arccos(-P/Q)) 
+                    #print(tau_list[i])
                 else:
                     print(xs, P, Q)
 
@@ -354,7 +393,7 @@ class Net_Dyn:
          
             column_name = [f'seed{i}' for i in range(np.size(seed))]
             column_name.extend(['kmax', str(beta), 'wk', 'order' ])
-            self.save_data(des_file, data, column_name)
+            #self.save_data(des_file, data, column_name)
 
             print(seed, tau)
 
@@ -380,6 +419,7 @@ class Net_Dyn:
         index_list = np.argsort(wk)[-10:]
         index_list = np.argsort(wk)
         tau_individual = []
+        tau_index = []
         for index in index_list:
             w = np.sum(A[index])
             if dynamics == 'mutual':
@@ -468,10 +508,11 @@ class Net_Dyn:
                 tau_individual.append(tau)
 
         tau = np.min(tau_individual)
-        data = np.hstack((seed, wk.max(), tau))
+        tau_index.append(np.argmin(tau_individual))
+        data = np.hstack((seed, wk.max(), tau, tau_index))
      
         column_name = [f'seed{i}' for i in range(np.size(seed))]
-        column_name.extend(['kmax', 'tau'])
+        column_name.extend(['kmax', 'tau', 'index'])
         self.save_data(des_file, data, column_name)
         print(seed, tau)
 
@@ -487,7 +528,7 @@ class Net_Dyn:
         des = '../data/' + dynamics + '/'  
         if not os.path.exists(des):
             os.makedirs(des)
-        des_file = des + 'beta=' + str(beta) + '_logistic.csv'
+        des_file = des + 'beta=' + str(beta) + '_wk_logistic.csv'
 
         t = np.arange(0, 1000, 0.01)
         tau_individual = np.ones(len(wk_list)) * (-1)
@@ -505,14 +546,63 @@ class Net_Dyn:
             elif dynamics == 'harvest':
                 r, K, c = arguments
                 xs = odeint(harvest_decouple_two, np.ones(2) * attractor_value, t, args=(w, beta_eff, arguments))[-1]
-                print(xs)
                 fx = r * (1-xs/K) - 2 * c * xs / (xs**2+1)**2
                 fxt = -r * xs  / K
                 g11 = -w
                 g12 = w 
                 g21 = 0
                 g22 = 0
-                print(w)
+
+            elif dynamics == 'genereg':
+                B, = arguments
+                xs = odeint(genereg_decouple_two, np.ones(2) * attractor_value, t, args=(w, beta_eff, arguments))[-1]
+                fx = 0
+                fxt = -B * np.ones(2)
+                g11 = 0
+                g12 = w * 2 * xs[1] / (xs[1]**2 + 1)**2
+                g21 = 0
+                g22 = beta * 2 * xs[1] / (xs[1]**2 + 1)**2
+
+            elif dynamics == 'SIS':
+                B, = arguments
+                xs = odeint(SIS_decouple_two, np.ones(2) * attractor_value, t, args=(w, beta_eff, arguments))[-1]
+                fx = 0
+                fxt = -B * np.ones(2)
+                g11 = - w * xs[1]
+                g12 = w  * (1 - xs[0])
+                g21 = 0
+                g22 = beta * (1 - 2 * xs[1])
+
+            elif dynamics == 'BDP':
+                B, = arguments
+                xs = odeint(BDP_decouple_two, np.ones(2) * attractor_value, t, args=(w, beta_eff, arguments))[-1]
+                fx = 0
+                fxt = -B * 2 * xs
+                g11 = 0
+                g12 = w 
+                g21 = 0
+                g22 = beta 
+
+            elif dynamics == 'PPI':
+                B, F = arguments
+                xs = odeint(PPI_decouple_two, np.ones(2) * attractor_value, t, args=(w, beta_eff, arguments))[-1]
+                fx = 0
+                fxt = -B  * np.ones(2)
+                g11 = - w * xs[1]
+                g12 = - w * xs[0] 
+                g21 = 0
+                g22 = - beta * 2 * xs[1]  
+
+            elif dynamics == 'CW':
+                a, b = arguments
+                xs = odeint(CW_decouple_two, np.ones(2) * attractor_value, t, args=(w, beta_eff, arguments))[-1]
+                fx = 0
+                fxt = -1 * np.ones(2)
+                g11 = 0
+                g12 = w * b * np.exp(a - b * xs[1]) / (1 + np.exp(a - b * xs[1])) ** 2
+                g21 = 0
+                g22 = beta * b * np.exp(a - b * xs[1]) / (1 + np.exp(a - b * xs[1])) ** 2 
+
 
             g_matrix = np.array([[g11, g12], [g21, g22]])
 
@@ -992,6 +1082,25 @@ def PPI_decouple_two(x, t, w, beta, arguments):
     dxdt = sum_f + sum_g
     return dxdt
 
+def PPI_decouple_two_delay(f, x0, t, dt, d, w, beta, arguments):
+    """describe the derivative of x.
+    set universal parameters 
+    :x: the species abundance of plant network 
+    :t: the simulation time sequence 
+    :par: parameters  of this system
+    :returns: derivative of x 
+
+    """
+    xd = np.where(t>d, f[int((t-d)/dt)], x0)
+    x = f[int(t/dt)]
+    B, F = arguments
+    sum_f = F - B * xd
+    sum_g = np.array([- w * x[0] * x[1], - beta * x[1] * x[1]])
+    dxdt = sum_f + sum_g
+    xd = np.where(t>d, f[int((t-d)/dt)], x0)
+    #x[np.where(x<0)] = 0  # Negative x is forbidden
+    dxdt = sum_f + sum_g
+    return dxdt
 
 
 def CW_single(x, t, beta, arguments):
@@ -1125,6 +1234,7 @@ def mutual_multi_delay(f, x0, t, dt, d, arguments, net_arguments):
     sum_g = A_interaction * x[index_j] / (D + E * x[index_i] + H * x[index_j])
     dxdt = sum_f + x * np.add.reduceat(sum_g, cum_index[:-1])
     return dxdt
+
 
 def mutual_one_delay(f, x0, t, dt, d, N, delay_node, index_i, index_j, A_interaction, cum_index, arguments):
     """describe the derivative of x.
@@ -1394,7 +1504,7 @@ def compare_evo_eigenvalue(network_type, N, beta, seed,d ):
     plt.plot(tau_eigen, tau_evo, 'o')
     plt.plot(np.arange(0.2, 0.4, 0.1), np.arange(0.2, 0.4, 0.1))
 
-def evolution_analysis(network_type, N, beta, betaeffect, seed, d, delay):
+def evolution_analysis(network_type, dynamics_multi, dynamics_multi_delay, dynamics_decouple_two_delay, arguments, N, beta, betaeffect, seed, d, delay):
     """TODO: Docstring for evolution_oscillation.
 
     :arg1: TODO
@@ -1403,35 +1513,40 @@ def evolution_analysis(network_type, N, beta, betaeffect, seed, d, delay):
     """
 
     A, A_interaction, index_i, index_j, cum_index = network_generate(network_type, N, beta, betaeffect, seed, d)
-    xs_low, xs_high = stable_state(A, A_interaction, index_i, index_j, cum_index, arguments)
     beta_eff, _ = betaspace(A, [0])
     degree= np.sum(A>0, 0)
-    index = np.argmax(degree)
     N = np.size(A, 0)
+    dt = 0.01
+    t = np.arange(0, 200, dt)
     initial_condition = np.ones(N) * 5
-    initial_condition = xs_high - 0.0001
-    dt = 0.001
-    t = np.arange(0, 50, dt)
+    net_arguments = (index_i, index_j, A_interaction, cum_index)
+    xs_high = odeint(dynamics_multi, initial_condition, t, args=(arguments, net_arguments))[-1]
+
     t1 = time.time()
-    dyn_multi = ddeint_Cheng(mutual_multi_delay, initial_condition, t, *(delay, 0, 0, N, index_i, index_j, A_interaction, cum_index, arguments))
+    deviation = 0.0001
+    dyn_multi = ddeint_Cheng(dynamics_multi_delay, xs_high - deviation, t, *(delay, arguments, net_arguments))
     t2 = time.time()
     plot_diff(dyn_multi, xs_high, dt, 'tab:red', 'multi-delay')
-    dyn_single = ddeint_Cheng(mutual_single_delay, initial_condition, t, *(delay, 0, 0, N, [index], index_i, index_j, A_interaction, cum_index, arguments))
+    diff = np.sum(np.abs(dyn_multi - xs_high), 0)
+    diffmax_index = np.argmax(diff) 
     t3 = time.time()
-    plot_diff(dyn_single[:, index], xs_high[index], dt, 'tab:blue', 'single-delay')
-    w = np.sum(A[index])
+    w = np.sum(A[diffmax_index])
+    xs_decouple = ddeint_Cheng(dynamics_decouple_two_delay, initial_condition[0:2], t, *(0, beta_eff, w, arguments))[-1]
+    dyn_decouple = ddeint_Cheng(dynamics_decouple_two_delay, xs_decouple - deviation, t, *(delay, beta_eff, w, arguments))[:, 0]
+
+    plot_diff(dyn_decouple, xs_decouple[0], dt, 'tab:blue', 'decouple-delay')
     #xs_eff = fsolve(mutual_1D, np.mean(initial_condition), args=(0, beta_eff, arguments))
-    xs_eff = np.mean(xs_high)
+    #xs_eff = np.mean(xs_high)
     #xs_eff = np.mean(np.setdiff1d(xs_high, xs_high[index]))
-    xs_high_max = ddeint_Cheng(one_single_delay, np.array([xs_high[index]]), t, *(0, 0, 0, w, xs_eff, arguments))[-1]
+    #xs_high_max = ddeint_Cheng(one_single_delay, np.array([xs_high[index]]), t, *(0, 0, 0, w, xs_eff, arguments))[-1]
     initial_condition = np.ones(1) * 5
-    initial_condition = xs_high_max - 0.0001
+    #initial_condition = xs_high_max - 0.0001
 
     t4 = time.time()
-    dyn_one = ddeint_Cheng(one_single_delay, initial_condition, t, *(delay, 0, 0, w, xs_eff, arguments))[:, 0]
+    #dyn_one = ddeint_Cheng(one_single_delay, initial_condition, t, *(delay, 0, 0, w, xs_eff, arguments))[:, 0]
     t5 = time.time()
     print(t2-t1, t3-t2, t5-t4)
-    plot_diff(dyn_one, xs_high_max, dt, 'tab:green', 'one-component')
+    #plot_diff(dyn_one, xs_high_max, dt, 'tab:green', 'one-component')
     plt.subplots_adjust(left=0.2, right=0.98, wspace=0.25, hspace=0.25, bottom=0.18, top=0.98)
     plt.xticks(fontsize=ticksize)
     plt.yticks(fontsize=ticksize)
@@ -1465,11 +1580,11 @@ def plot_diff(dyn, xs, dt, color, label):
         peak_positive = peak[positive_index]
         peak_index_positive = peak_index[positive_index]
         if i +1 < size:
-            plt.semilogy(peak_index_positive*dt, peak_positive, '.-', alpha = alpha)
+            plt.semilogy(peak_index_positive*dt, peak_positive, '.-', alpha = alpha, color=color)
         else:
-            plt.semilogy(peak_index_positive*dt, peak_positive, '.-', label=label, alpha = alpha)
+            plt.semilogy(peak_index_positive*dt, peak_positive, '.-', label=label, alpha = alpha, color=color)
 
-    return None
+    return 
 
 def evolution_single(network_type, N, beta, betaeffect, seed, arguments, d1, d2, d3, d):
     """TODO: Docstring for evolution.
@@ -1512,25 +1627,171 @@ def evolution_single(network_type, N, beta, betaeffect, seed, arguments, d1, d2,
     return dyn_all, tau
 
 
+def decouple_chain_rule(A, arguments, xs):
+    """TODO: wrong
 
-network_type = 'SF'
-network_type = 'ER'
+    :arg1: TODO
+    :returns: TODO
+
+    """
+    B, C, D, E, H, K = arguments
+    dFx = (1 -xs / K) * (2 * xs / C-1)
+    dFx_tau = -xs/K*(xs/C-1)
+    xs_T = xs.reshape(len(xs), 1)
+    denominator = D + E * xs + H * xs_T
+    "A should be transposed to A_ji"
+    dgx_i = A * (xs_T/denominator - E * xs * xs_T/denominator ** 2 )
+    dgx_j = A * (xs/denominator - H * xs * xs_T/denominator ** 2 )
+    print(np.sum(dgx_i>0), np.sum(dgx_j>0), np.sum(dgx_i<0), np.sum(dgx_j<0), np.sum(dFx<0))
+    tau_list = []
+    N = np.size(A, 0)
+    for i in range(N):
+        P = - (dFx[i] + np.sum(dgx_i[:, i]))
+        for j in range(N):
+            dxjxi = (-dgx_j[i, j]/( dFx[j] + np.sum(dgx_i[:, j]) + np.sum(np.heaviside(A[:, i], 0) *  dgx_j[:, j] )))
+            P = P -   dgx_j[j, i]  *dxjxi
+            #P = P - dgx_j[j, i]  *  (-dgx_j[i, j]/( dFx[j] ))
+            #P = P
+        Q = - dFx_tau[i]
+        if abs(P/Q)<=1:
+            tau = np.arccos(-P/Q) /Q/np.sin(np.arccos(-P/Q))
+            nu = np.arccos(-P/Q)/tau
+            tau_list.append(tau)
+            #print(nu,tau)
+    return tau_list 
+
+def eigenvector_zeroeigenvalue(A, arguments, xs):
+    """TODO: Docstring for eigenvector.
+
+    :A: TODO
+    :arguments: TODO
+    :xs: TODO
+    :returns: TODO
+
+    """
+    B, C, D, E, H, K = arguments
+    fx = (1-xs/K) * (2*xs/C-1)
+    fxt = -xs/K*(xs/C-1)
+    xs_T = xs.reshape(len(xs), 1)
+    denominator = D + E * xs + H * xs_T
+    "A should be transposed to A_ji"
+    gx_i = np.sum(A * (xs_T/denominator - E * xs * xs_T/denominator ** 2 ), 0)
+    gx_j = A * (xs/denominator - H * xs * xs_T/denominator ** 2 )
+    tau_sol = []
+    nu_sol = []
+    for initial_condition in np.array(np.meshgrid(tau_list, nu_list)).reshape(2, int(np.size(tau_list) * np.size(nu_list))).transpose():
+        tau_solution, nu_solution = fsolve(eigenvalue_zero, initial_condition, args=(A, fx, fxt, gx_i, gx_j))
+        "check the solution given by fsolve built-in function."
+        eigen_real, eigen_imag = eigenvalue_zero(np.array([tau_solution, nu_solution]), A, fx, fxt, gx_i, gx_j)
+        if abs(eigen_real) < 1e-5 and abs(eigen_imag) < 1e-5:
+            #print(tau_solution, nu_solution)
+            tau_sol.append(tau_solution)
+            nu_sol.append(nu_solution)
+    tau_sol = np.array(tau_sol)
+    tau_positive = tau_sol[tau_sol>0]
+    nu_positive = np.array(nu_sol)[tau_sol>0]
+    min_index = np.argmin(tau_positive)
+    tau = tau_positive[min_index]
+    nu = nu_positive[min_index]
+    imag = 1j
+    M = np.diagflat(nu * imag - fx - fxt * np.exp(- nu * tau * imag) - gx_i) - gx_j 
+    eigenvalue, eigenvector = np.linalg.eig(M)
+    eigenvector_zero = eigenvector[:, np.argmin(np.abs(eigenvalue))]
+    return eigenvector_zero, tau
+
+def evolution_compare(network_type, arguments, N, beta, betaeffect, d, seed, delay, index):
+    """TODO: Docstring for evolution_compare.
+
+    :network_type: TODO
+    :dynamics: TODO
+    :arguments: TODO
+    :N: TODO
+    :beta: TODO
+    :betaeffect: TODO
+    :d: TODO
+    :returns: TODO
+
+    """
+
+    A, A_interaction, index_i, index_j, cum_index = network_generate(network_type, N, beta, betaeffect, seed, d)
+    beta, _ = betaspace(A, [0])
+    N_actual = np.size(A, 0)
+    w_list = np.sum(A, 0)
+    w = np.sort(w_list)[index]
+    A_index = np.where(w_list == w)[0][0]
+    net_arguments = (index_i, index_j, A_interaction, cum_index)
+
+    initial_condition = np.ones((N_actual)) * 5.0
+    t = np.arange(0, 200, 0.01)
+    dt = 0.01
+    xs = odeint(mutual_multi, initial_condition, t, args=(arguments, net_arguments))[-1]
+    dyn_multi = ddeint_Cheng(mutual_multi_delay, initial_condition, t, *(delay, arguments, net_arguments))
+    dyn_decouple = ddeint_Cheng(mutual_decouple_two_delay, initial_condition[:2], t, *(delay, w, beta, arguments))
+    xs_decouple = ddeint_Cheng(mutual_decouple_two_delay, initial_condition[:2], t, *(0, w, beta, arguments))[-1]
+    #plt.plot(t[:2000], dyn_multi[:2000, A_index], '-', color='tab:red', linewidth=lw, alpha=alpha, label='multi')
+    #plt.plot(t[:2000], dyn_decouple[:2000, 0], '-', color='tab:blue', linewidth=lw, alpha=alpha, label='decouple')
+
+    index_neighbor = np.where(A[A_index]>0)[0]
+    s = np.sum(A[index_neighbor], 1)
+    #plt.plot(t[:2000], np.mean(s * dyn_multi[:2000, index_neighbor], 1)/np.mean(s), '-', color='tab:red', linewidth=lw, alpha=alpha, label='multi')
+    #plt.plot(t[:2000], np.mean(np.sum(A, 0) * dyn_multi[:2000, :], 1)/np.mean(np.sum(A, 0)), '-', color='tab:red', linewidth=lw, alpha=alpha, label='multi')
+    plt.plot(t[:2000], np.mean(dyn_multi[:2000, index_neighbor], 1), '-', color='tab:red', linewidth=lw, alpha=alpha, label='multi')
+    plt.plot(t[:2000], dyn_decouple[:2000, 1], '-', color='tab:blue', linewidth=lw, alpha=alpha, label='decouple')
+    plt.subplots_adjust(left=0.18, right=0.98, wspace=0.25, hspace=0.25, bottom=0.18, top=0.98)
+    plt.xticks(fontsize=ticksize)
+    plt.yticks(fontsize=ticksize)
+    plt.xlabel('$t$', fontsize= fs)
+    plt.ylabel('$x$', fontsize =fs)
+    plt.locator_params(axis='x', nbins=5)
+    plt.legend(fontsize=legendsize, frameon=False)
+
+    plt.show()
+    #plt.close()
+
+    plot_diff(dyn_multi[:, A_index], xs[A_index], dt, 'tab:red', 'multi')
+    plot_diff(dyn_decouple[:, 0], xs_decouple[0], dt, 'tab:blue', 'decouple')
+    plt.subplots_adjust(left=0.18, right=0.98, wspace=0.25, hspace=0.25, bottom=0.18, top=0.98)
+    plt.xticks(fontsize=ticksize)
+    plt.yticks(fontsize=ticksize)
+    plt.xlabel('$t$', fontsize= fs)
+    plt.ylabel('$A$', fontsize =fs)
+    plt.locator_params(axis='x', nbins=5)
+    plt.legend(fontsize=legendsize, frameon=False)
+    #plt.ylim(10**(-9),1)
+    plt.show()
+    return None
+    
+def eigenvalue_zero(x, A, fx, fxt, gx_i, gx_j):
+    """TODO: Docstring for matrix_variable.
+
+    :x: TODO
+    :fx: TODO
+    :fxt: TODO
+    :degree: TODO
+    :gx_i: TODO
+    :gx_j: TODO
+    :returns: TODO
+
+    """
+    imag = 1j
+    tau, nu = x
+    M = np.diagflat(nu * imag - fx - fxt * np.exp(- nu * tau * imag) - gx_i) - gx_j 
+    eigenvalue, eigenvector = np.linalg.eig(M)
+    zeropoint = eigenvalue[np.argmin(np.abs(eigenvalue))]
+    return np.array([np.real(zeropoint), np.imag(zeropoint)])
+
+network_type = 'RR'
 N = 100
-d = [3, 99, 3]
-d = 200
-dynamics = 'mutual'
-dynamics = 'BDP'
-dynamics = 'PPI'
-dynamics = 'CW'
-dynamics = 'harvest'
-dynamics = 'genereg'
-dynamics = 'SIS'
 
-beta = 2.9
+beta = 1
 betaeffect = 1
 seed1 = np.arange(100).tolist()
-seed_list = np.vstack((seed1, seed1)).transpose().tolist()
-seed_list = np.arange(100).tolist()
+
+network_type = 'SF'
+seed_SF = np.vstack((seed1, seed1)).transpose().tolist()
+
+network_type = 'ER'
+seed_ER = seed1
 
 r= 1
 K= 10
@@ -1547,51 +1808,101 @@ a = 5
 b = 1
 
 attractor_value = 5.0
-arguments = (B, C, D, E, H, K_mutual)
-arguments = (B_BDP, )
-arguments = (B_PPI, F_PPI)
-arguments = (a, b)
-arguments = (r, K, c)
-arguments = (B_gene, )
-arguments = (B_SIS, )
 
 
-"harvest"
-tau_list = np.arange(1., 1.5, 0.1)
-nu_list = np.arange(0.1, 1.5, 0.5)
 
-"mutual"
-tau_list = np.arange(0.2, 0.5, 0.1)
-nu_list = np.arange(1, 10, 1)
 
 "BDP"
+dynamics = 'BDP'
+arguments = (B_BDP, )
 tau_list = np.arange(0.5, 1, 0.2)
 nu_list = np.arange(1, 5, 2)
 
+
+"CW"
+dynamics = 'CW'
+arguments = (a, b)
+
+"SIS"
+dynamics = 'SIS'
+arguments = (B_SIS, )
+
 "genereg"
+arguments = (B_gene, )
+dynamics = 'genereg'
 tau_list = np.arange(1, 2, 0.5)
 nu_list = np.arange(0.1, 1, 0.2)
 
-"PPI"
-tau_list = np.arange(0.1, 5, 0.5)
-nu_list = np.arange(0, 2, 0.5)
+"harvest"
+dynamics = 'harvest'
+arguments = (r, K, c)
+tau_list = np.arange(1., 1.5, 0.1)
+nu_list = np.arange(0.1, 1.5, 0.5)
 
 "PPI"
+dynamics = 'PPI'
+arguments = (B_PPI, F_PPI)
 tau_list = np.arange(0.1, 2, 0.5)
 nu_list = np.arange(0, 2, 0.5)
 
+"mutual"
+dynamics = 'mutual'
+arguments = (B, C, D, E, H, K_mutual)
+tau_list = np.arange(0.2, 0.5, 0.1)
+nu_list = np.arange(1, 10, 1)
+
 
 wk_list = np.arange(0.1, 20, 0.1)
-#n.tau_decouple_eff()
 #n.tau_decouple_two()
+network_list = ['SF', 'ER', 'RR']
+network_list = ['ER']
+d_RR = [4]
+d_SF = [[2.5, 99, 3], [3, 99, 3], [3.5, 99, 3], [4, 99, 3]]
+d_SF = [[3, 99, 3]]
+d_ER = [100, 200, 400, 800, 1600]
+d_ER = [200]
+beta_list = [4]
+beta_list = [1, 4]
+
+for network_type in network_list:
+    if network_type == 'SF':
+        d_list = d_SF
+        seed_list = seed_SF
+    elif network_type == 'ER':
+        d_list = d_ER
+        seed_list = seed_ER
+    elif network_type == 'RR':
+        d_list = d_RR
+        seed_list = seed_ER
+    elif network_type == '2D':
+        d_list = [4]
+        seed_list = [0]
+    for beta in beta_list:
+        for d in d_list:
+            n = Net_Dyn(network_type, N, beta, betaeffect, seed_list, d, dynamics, attractor_value, arguments, tau_list, nu_list)
+            #n.eigen_parallel('decouple_two')
+            #n.eigen_parallel('eigen')
+            #n.tau_decouple_eff()
+            #tau = n.tau_1D()
+
 #n.tau_decouple_wk(wk_list)
-
-
-for d in d_list:
-    n = Net_Dyn(network_type, N, beta, betaeffect, seed_list, d, dynamics, attractor_value, arguments, tau_list, nu_list)
-    t1 = time.time()
-    n.eigen_parallel('decouple_two')
-    n.eigen_parallel('eigen')
-    #tau = n.tau_1D()
-    t2 = time.time()
-    #print(t2-t1)
+network_type = 'ER'
+network_type = 'SF'
+N = 100
+beta = 4
+betaeffect = 1
+seed = 0
+seed =[0, 0]
+d = 200
+d = [3, 99, 3]
+A, A_interaction, index_i, index_j, cum_index = network_generate(network_type, N, beta, betaeffect, seed, d)
+N_actual = np.size(A, 0)
+net_arguments = (index_i, index_j, A_interaction, cum_index)
+initial_condition = np.ones((N_actual)) * attractor_value
+t = np.arange(0, 1000, 0.01)
+xs = odeint(mutual_multi, initial_condition, t, args=(arguments, net_arguments))[-1]
+#tau = decouple_chain_rule(A, arguments, xs)
+#eigenvector, tau = eigenvector_zeroeigenvalue(A, arguments, xs)
+delay = 0.2
+index = 98
+#evolution_compare(network_type, arguments, N, beta, betaeffect, d, seed, delay, index)
