@@ -27,7 +27,7 @@ from scipy.signal import find_peaks
 
 mpl.rcParams['axes.prop_cycle'] = cycler(color=['tab:blue', 'tab:orange', 'tab:green', 'tab:red', 'tab:purple', 'tab:brown', 'tab:pink', 'grey', 'tab:olive', 'tab:cyan']) 
 
-cpu_number = 4
+cpu_number = 8
 B = 0.1
 C = 1
 K_mutual = 5
@@ -133,7 +133,7 @@ def mutual_bifurcation(beta_list, initial_condition, arguments, tau):
     B, C, D, E, H, K = arguments
     xs = np.ones(len(beta_list)) * (-1)
     for beta, i in zip(beta_list, range(len(beta_list))):
-        dyn_all = ddeint_Cheng(mutual_single_delay, initial_condition, t, *(tau, beta, arguments))[-100:]
+        dyn_all = ddeint_Cheng(mutual_single_delay, [initial_condition], t, *(tau, beta, arguments))[-100:]
         #xs = odeint(mutual_single, initial_condition, t, args=(beta, arguments))[-1]
         if np.ptp(dyn_all) < 1e-3:
             xs[i] = dyn_all[-1]
@@ -141,7 +141,7 @@ def mutual_bifurcation(beta_list, initial_condition, arguments, tau):
     des = f'../data/mutual/single/tau={tau}/'
     if not os.path.exists(des):
         os.makedirs(des)
-    des_file = des + f'x0={initial_condition[0]}.csv'
+    des_file = des + f'x0={initial_condition}.csv'
     df = pd.DataFrame(data.transpose())
     df.to_csv(des_file, index =None, header=None)
     return xs
@@ -258,7 +258,7 @@ def harvest_bifurcation(beta_list, initial_condition, arguments, tau):
     df.to_csv(des_file, index =None, header=None)
     return xs
 
-def parallel_bifurcation(beta_list, initial_condition_list, tau_list, arguments):
+def parallel_bifurcation(dynamics, beta_list, initial_condition_list, tau_list, arguments):
     """TODO: Docstring for parallel_bifurcation.
 
     :beta_list: TODO
@@ -268,7 +268,10 @@ def parallel_bifurcation(beta_list, initial_condition_list, tau_list, arguments)
 
     """
     p = mp.Pool(cpu_number)
-    p.starmap_async(harvest_bifurcation, [(beta_list, initial_condition, arguments, tau) for tau in tau_list for initial_condition in initial_condition_list]).get()
+    if dynamics == 'mutual':
+        p.starmap_async(mutual_bifurcation, [(beta_list, initial_condition, arguments, tau) for tau in tau_list for initial_condition in initial_condition_list]).get()
+    elif dynamics == 'harvest':
+        p.starmap_async(harvest_bifurcation, [(beta_list, initial_condition, arguments, tau) for tau in tau_list for initial_condition in initial_condition_list]).get()
     p.close()
     p.join()
 
@@ -315,12 +318,8 @@ h =2
 a = 5
 b = 1
 
-initial_condition= np.ones(1) * 0.4
 
 
-"mutual"
-dynamics = 'mutual'
-arguments = (B, C, D, E, H, K_mutual)
 
 beta_list = np.arange(1, 10, 0.5)
 tau = 0.2
@@ -341,9 +340,16 @@ initial_condition = [10]
 #tau_critical = harvest_tau_1D(beta_list, initial_condition, arguments)
 initial_condition_list = np.array([6.0, 7.0])
 tau_list = np.array([1.7, 1.8])
-parallel_bifurcation(beta_list, initial_condition_list, tau_list, arguments)
 
-beta = 2.6
-tau = 1.8
+dynamics = 'mutual'
+arguments = (B, C, D, E, H, K_mutual)
+beta_list = np.arange(1, 10, 0.01)
+tau_list = [0.1, 0.15, 0.2, 0.025, 0.3]
+initial_condition_list = [0.1, 5.0, 6.0, 10.0]
+
+parallel_bifurcation(dynamics, beta_list, initial_condition_list, tau_list, arguments)
+
+beta = 2.0
+tau = 2.0
 initial_condition = [6.0]
 #transition_harvest(beta, tau, initial_condition, arguments)
