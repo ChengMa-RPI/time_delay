@@ -27,7 +27,7 @@ from scipy.signal import find_peaks
 
 mpl.rcParams['axes.prop_cycle'] = cycler(color=['tab:blue', 'tab:orange', 'tab:green', 'tab:red', 'tab:purple', 'tab:brown', 'tab:pink', 'grey', 'tab:olive', 'tab:cyan']) 
 
-cpu_number = 8
+cpu_number = 40
 B = 0.1
 C = 1
 K_mutual = 5
@@ -214,25 +214,41 @@ def harvest_multi_delay(f, x0, t, dt, d, arguments, net_arguments):
     dxdt = sum_f + np.add.reduceat(sum_g, cum_index[:-1])
     return dxdt
 
-def harvest_tau_1D(beta_list, initial_condition, arguments):
+def tau_1D(dynamics, beta_list, initial_condition, arguments):
     """TODO: Docstring for mutual_tau_1D.
     :returns: TODO
 
     """
     tau_list = []
+    beta_plot = []
     t = np.arange(0, 1000, 0.01) 
-    r, K, c = arguments
     for beta in beta_list:
-        arguments = (r, K, beta)
-        xs = odeint(harvest_single, initial_condition, t, args=(arguments,))[-1]
-        P = -r * (1-xs/K) + 2 * beta * xs / (xs**2+1)**2 
-        Q = r * xs / K
-        if abs(P/Q)<=1:
-            tau = np.arccos(-P/Q) /Q/np.sin(np.arccos(-P/Q))
-            nu = np.arccos(-P/Q)/tau
-            tau_list.append(tau[0])
-        else:
-            tau_list.append(0)
+        if dynamics == 'harvest':
+            r, K, c = arguments
+            arguments = (r, K, beta)
+            xs = odeint(harvest_single, initial_condition, t, args=(arguments,))[-1]
+            P = -r * (1-xs/K) + 2 * beta * xs / (xs**2+1)**2 
+            Q = r * xs / K
+        elif dynamics == 'mutual':
+            B, C, D, E, H, K = arguments
+            xs = odeint(mutual_single, initial_condition, t, args=(beta, arguments))[-1]
+            P =  -(1 -xs / K) * (2 * xs / C-1)- (2 * beta * xs)/(D + E * xs + H * xs) + (beta * (E+H) * xs**2)/(D + (E+H) * xs)**2 
+            Q = xs/K*(xs/C-1)
+
+            if abs(P/Q)<=1:
+                tau = np.arccos(-P/Q) /Q/np.sin(np.arccos(-P/Q))
+                nu = np.arccos(-P/Q)/tau
+                tau_list.append(tau[0])
+                beta_plot.append(beta)
+    plt.plot(beta_plot, tau_list, linewidth=lw, alpha=alpha)
+    plt.subplots_adjust(left=0.18, right=0.98, wspace=0.25, hspace=0.25, bottom=0.18, top=0.98)
+    plt.xticks(fontsize=ticksize)
+    plt.yticks(fontsize=ticksize)
+    #plt.locator_params(axis='x', nbins=4)
+    plt.xlabel('$\\beta$', fontsize= fs)
+    plt.ylabel('$\\tau_c$', fontsize =fs)
+    plt.legend( fontsize=legendsize, frameon=False)
+
     return tau_list
 
 def harvest_bifurcation(beta_list, initial_condition, arguments, tau):
@@ -274,7 +290,7 @@ def parallel_bifurcation(dynamics, beta_list, initial_condition_list, tau_list, 
         p.starmap_async(harvest_bifurcation, [(beta_list, initial_condition, arguments, tau) for tau in tau_list for initial_condition in initial_condition_list]).get()
     p.close()
     p.join()
-
+    return None
 
 def transition_harvest(beta, tau, initial_condition, arguments):
     """TODO: Docstring for transition_harvest.
@@ -300,8 +316,60 @@ def transition_harvest(beta, tau, initial_condition, arguments):
 
     #plt.show()
 
+def evolution_multi(network_type, arguments, N, beta, betaeffect, d, seed, delay, initial_value):
+    """TODO: Docstring for evolution_compare.
 
+    :network_type: TODO
+    :dynamics: TODO
+    :arguments: TODO
+    :N: TODO
+    :beta: TODO
+    :betaeffect: TODO
+    :d: TODO
+    :returns: TODO
 
+    """
+
+    A, A_interaction, index_i, index_j, cum_index = network_generate(network_type, N, beta, betaeffect, seed, d)
+    N_actual = np.size(A, 0)
+    net_arguments = (index_i, index_j, A_interaction, cum_index)
+    initial_condition = np.ones((N_actual)) * initial_value
+    t = np.arange(0, 500, 0.01)
+    xs = odeint(mutual_multi, initial_condition, t, args=(arguments, net_arguments))[-1]
+    dyn_multi = ddeint_Cheng(mutual_multi_delay, initial_condition, t, *(delay, arguments, net_arguments))[-1]
+    dyn_beta = betaspace(A, dyn_multi)
+    if np.max(np.abs(dyn_multi-xs))< 1e-2:
+        xs = dyn_multi[-1]
+    else:
+        xs = -1 * np.ones(N_actual)
+    data = np.hstack((seed, xs))
+    des = f'../data/mutual/' + network_type + '/xs/'
+    if not os.path.exists(des):
+        os.makedirs(des)
+    if betaeffect == 0:
+        des_file = des + f'N={N}_d={d}_wt={beta}_delay={delay}_x0={initial_value}.csv'
+    else:
+        des_file = des + f'N={N}_d={d}_beta={beta}_delay={delay}_x0={initial_value}.csv'
+    df = pd.DataFrame(data.reshape(1, len(data)))
+    df.to_csv(des_file, mode='a', index=None, header=None)
+
+    #dyn_multi = ddeint_Cheng(mutual_multi_delay, xs-1e-3, t, *(delay, arguments, net_arguments))
+    #dyn_decouple = ddeint_Cheng(mutual_decouple_two_delay, xs_decouple - 1e-3, t, *(delay, w, beta, arguments))
+    return None
+
+def parallel_evolution(network_type, arguments, N, beta, betaeffect, d, seed_list, delay, initial_value):
+    """TODO: Docstring for parallel_evolution.
+
+    :network_type: TODO
+    :: TODO
+    :returns: TODO
+
+    """
+    p = mp.Pool(cpu_number)
+    p.starmap_async(evolution_multi, [(network_type, arguments, N, beta, betaeffect, d, seed, delay, initial_value) for seed in seed_list]).get()
+    p.close()
+    p.join()
+    return None
 
 
 r= 1
@@ -326,7 +394,6 @@ tau = 0.2
 tau_list = [0.1, 0.15, 0.2, 0.025, 0.3]
 initial_condition_list = np.array([0.5, 1.0, 2.0, 3.0, 5.0, 10.0])
 
-#tau_list = mutual_tau_1D(beta_list, initial_condition, arguments)
 for tau in tau_list:
     for initial_condition in initial_condition_list:
         #xs = mutual_bifurcation(beta_list, [initial_condition], arguments, tau)
@@ -335,21 +402,35 @@ for tau in tau_list:
 "harvest"
 dynamics = 'harvest'
 arguments = (r, K, c)
-beta_list = np.arange(1, 3, 0.1)
-initial_condition = [10]
-#tau_critical = harvest_tau_1D(beta_list, initial_condition, arguments)
+beta_list = np.arange(1, 4, 0.01)
+initial_condition = [6.0]
 initial_condition_list = np.array([6.0, 7.0])
 tau_list = np.array([1.7, 1.8])
 
+beta = 2.6
+tau = 2.1
+initial_condition = [5.1]
+#transition_harvest(beta, tau, initial_condition, arguments)
+
 dynamics = 'mutual'
 arguments = (B, C, D, E, H, K_mutual)
-beta_list = np.arange(1, 10, 0.01)
+beta_list = np.arange(1, 10, 0.1)
 tau_list = [0.1, 0.15, 0.2, 0.025, 0.3]
 initial_condition_list = [0.1, 5.0, 6.0, 10.0]
+initial_condition = [5.0]
 
-parallel_bifurcation(dynamics, beta_list, initial_condition_list, tau_list, arguments)
+#tau_critical = tau_1D(dynamics, beta_list, initial_condition, arguments)
+#parallel_bifurcation(dynamics, beta_list, initial_condition_list, tau_list, arguments)
 
-beta = 2.0
-tau = 2.0
-initial_condition = [6.0]
-#transition_harvest(beta, tau, initial_condition, arguments)
+network_type = 'SF'
+N = 100
+beta = 1
+betaeffect = 1
+d = [3, 99, 3]
+seed1 = np.arange(100).tolist()
+seed_list = np.vstack((seed1, seed1)).transpose().tolist()
+delay = 0.2
+initial_value = 5.0
+beta_list = np.arange(1, 10, 0.5)
+for beta in beta_list:
+    parallel_evolution(network_type, arguments, N, beta, betaeffect, d, seed_list, delay, initial_value)
