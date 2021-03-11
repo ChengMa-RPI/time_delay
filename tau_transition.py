@@ -333,16 +333,27 @@ def evolution_multi(network_type, arguments, N, beta, betaeffect, d, seed, delay
     A, A_interaction, index_i, index_j, cum_index = network_generate(network_type, N, beta, betaeffect, seed, d)
     N_actual = np.size(A, 0)
     net_arguments = (index_i, index_j, A_interaction, cum_index)
-    initial_condition = np.ones((N_actual)) * initial_value
+    dyn_multi = np.ones((N_actual)) * initial_value
     t = np.arange(0, 500, 0.01)
-    xs = odeint(mutual_multi, initial_condition, t, args=(arguments, net_arguments))[-1]
-    dyn_multi = ddeint_Cheng(mutual_multi_delay, initial_condition, t, *(delay, arguments, net_arguments))[-1]
-    dyn_beta = betaspace(A, dyn_multi)
-    if np.max(np.abs(dyn_multi-xs))< 1e-2:
-        xs = dyn_multi[-1]
+    xs = odeint(mutual_multi, dyn_multi, t, args=(arguments, net_arguments))[-1]
+    iteration = 1
+    deviation1 = np.abs(dyn_multi - xs)
+    while iteration:
+        dyn_multi = ddeint_Cheng(mutual_multi_delay, dyn_multi, t, *(delay, arguments, net_arguments))[-1]
+        deviation2 = np.abs(dyn_multi-xs)
+        if np.max(deviation2)< 1e-2:
+            iteration = 0
+        elif np.sum(deviation2) < np.sum(deviation1):
+            iteration = 1
+            deviation1 = deviation2
+        else:
+            iteration = 0
+    dyn_beta = betaspace(A, dyn_multi)[-1]
+    if np.max(deviation2) < 1e-2:
+        x = dyn_beta
     else:
-        xs = -1 * np.ones(N_actual)
-    data = np.hstack((seed, xs))
+        x = -1 
+    data = np.hstack((seed, x))
     des = f'../data/mutual/' + network_type + '/xs/'
     if not os.path.exists(des):
         os.makedirs(des)
@@ -352,7 +363,6 @@ def evolution_multi(network_type, arguments, N, beta, betaeffect, d, seed, delay
         des_file = des + f'N={N}_d={d}_beta={beta}_delay={delay}_x0={initial_value}.csv'
     df = pd.DataFrame(data.reshape(1, len(data)))
     df.to_csv(des_file, mode='a', index=None, header=None)
-
     #dyn_multi = ddeint_Cheng(mutual_multi_delay, xs-1e-3, t, *(delay, arguments, net_arguments))
     #dyn_decouple = ddeint_Cheng(mutual_decouple_two_delay, xs_decouple - 1e-3, t, *(delay, w, beta, arguments))
     return None
@@ -426,7 +436,7 @@ network_type = 'SF'
 N = 100
 beta = 1
 betaeffect = 1
-d = [3, 99, 3]
+d = [2.5, 99, 3]
 seed1 = np.arange(100).tolist()
 seed_list = np.vstack((seed1, seed1)).transpose().tolist()
 delay = 0.2
@@ -434,3 +444,5 @@ initial_value = 5.0
 beta_list = np.arange(1, 10, 0.5)
 for beta in beta_list:
     parallel_evolution(network_type, arguments, N, beta, betaeffect, d, seed_list, delay, initial_value)
+    pass
+#evolution_multi(network_type, arguments, N, beta, betaeffect, d, seed, delay, initial_value)
