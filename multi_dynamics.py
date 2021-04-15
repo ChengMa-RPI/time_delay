@@ -3,7 +3,7 @@ os.environ['OPENBLAS_NUM_THREADS'] ='1'
 import sys
 sys.path.insert(1, '/home/mac/RPI/research/')
 
-from mutual_framework import load_data, A_from_data, Gcc_A_mat, betaspace, mutual_1D, network_generate, stable_state, ode_Cheng, ddeint_Cheng
+from mutual_framework import load_data, A_from_data, Gcc_A_mat, betaspace, mutual_1D, network_generate, stable_state, ode_Cheng, ddeint_Cheng, dde_RK45
 
 import sympy as sp
 import numpy as np 
@@ -24,6 +24,9 @@ import itertools
 from scipy import linalg as slin
 from scipy.sparse.linalg import eigs as sparse_eig
 from scipy.signal import find_peaks
+from jitcdde import jitcdde
+from jitcdde import y as jy
+from jitcdde import t as jt
 
 mpl.rcParams['axes.prop_cycle'] = cycler(color=['tab:blue', 'tab:orange', 'tab:green', 'tab:red', 'tab:purple', 'tab:brown', 'tab:pink', 'grey', 'tab:olive', 'tab:cyan']) 
 
@@ -159,6 +162,14 @@ class Net_Dyn:
 
         xs = self.multi_stable(seed)
         network_type, N, N_actual, beta, betaeffect, d, dynamics, attractor_value, arguments, A, tau_list, nu_list = self.network_type, self.N, self.N_actual, self.beta, self.betaeffect, self.d, self.dynamics, self.attractor_value, self.arguments, self.A, self.tau_list, self.nu_list
+        des = '../data/' + dynamics + '/' + network_type + '/tau_evo/'
+        if betaeffect:
+            des_evo = des + f'N={N}_d=' + str(d) + '_beta=' + str(beta) + '_tau_evolution.csv'
+        else:
+            des_evo = des + f'N={N}_d=' + str(d) + '_wt=' + str(beta) + '_tau_evolution.csv'
+        data_evo = np.array(pd.read_csv(des_evo, header=None), float)
+        tau_evo = data_evo[:, -1][data_evo[:, 0] == seed][0]
+        tau_list = np.linspace(tau_evo* 0.8, tau_evo* 1.2, 3)
         
         if dynamics == 'mutual':
             B, C, D, E, H, K = arguments
@@ -247,6 +258,8 @@ class Net_Dyn:
             p.starmap_async(self.tau_decouple_two, [(seed, ) for seed in self.seed_list]).get()
         elif function == 'tau_evo':
             p.starmap_async(self.tau_evolution, [(seed, delay1, delay2) for seed in self.seed_list]).get()
+        elif function == 'tau_RK':
+            p.starmap_async(self.tau_RK, [(seed, delay1, delay2) for seed in self.seed_list]).get()
         p.close()
         p.join()
         return None
@@ -293,16 +306,21 @@ class Net_Dyn:
 
 
 
-
-        print(xs, P, Q)
-
         if abs(P/Q)<=1:
             tau = np.arccos(-P/Q) /Q/np.sin(np.arccos(-P/Q))
             nu = np.arccos(-P/Q)/tau
-            print(nu,tau)
-            return tau
         else:
-            return 0
+            tau = -1
+        des = '../data/' + dynamics + '/'
+        if not os.path.exists(des):
+            os.makedirs(des)
+
+        des_file = des + 'tau_1D.csv'
+
+        data = np.hstack((beta, tau))
+        df = pd.DataFrame(data.reshape(1, np.size(data)))
+        df.to_csv(des_file, index=None, header=None, mode='a')
+        return None
 
     def tau_decouple_eff(self):
         """TODO: Docstring for tau_kmax.
@@ -699,6 +717,74 @@ class Net_Dyn:
         df.to_csv(des_file, index=None, header=None, mode='a')
         return None
 
+    def tau_RK(self, seed, delay1, delay2, criteria_dyn=1e-5, criteria_delay=2e-3):
+        """TODO: Docstring for tau_evolution.
+
+        :network_type: TODO
+        :N: TODO
+        :beta: TODO
+        :seed: TODO
+        :d: TODO
+        :returns: TODO
+
+        """
+        xs = self.multi_stable(seed)
+        network_type, N, N_actual, beta, betaeffect, d, dynamics, attractor_value, arguments, A, tau_list, nu_list = self.network_type, self.N, self.N_actual, self.beta, self.betaeffect, self.d, self.dynamics, self.attractor_value, self.arguments, self.A, self.tau_list, self.nu_list
+
+        if dynamics == 'mutual':
+            dynamics_function = mutual_multi_delay
+        elif dynamics == 'harvest':
+            dynamics_function = harvest_multi_delay
+        elif dynamics == 'genereg':
+            dynamics_function = genereg_multi_delay
+        elif dynamics == 'SIS':
+            dynamics_function = SIS_multi_delay
+        elif dynamics == 'BDP':
+            dynamics_function = BDP_multi_delay
+        elif dynamics == 'PPI':
+            dynamics_function = PPI_multi_delay
+        elif dynamics == 'CW':
+            dynamics_function = CW_multi_delay
+
+        A, A_interaction, index_i, index_j, cum_index = network_generate(network_type, N, beta, betaeffect, seed, d)
+        net_arguments = (index_i, index_j, A_interaction, cum_index)
+
+        initial_condition = xs - 1e-3
+        t = np.arange(0, 200, 0.001)
+        dyn_dif = 1
+        delta_delay = delay2 - delay1
+        result = dict()
+        while delta_delay > criteria_delay:
+            if delay1 not in result:
+                dyn_all1 = dde_RK45(dynamics_function, initial_condition, t, *(delay1, arguments, net_arguments))[-10000:]
+                diff1 = np.max(np.max(dyn_all1, 0) - np.min(dyn_all1, 0))
+                result[delay1] = diff1
+            if delay2 not in result:
+                dyn_all2 = dde_RK45(dynamics_function, initial_condition, t, *(delay2, arguments, net_arguments))[-10000:]
+                diff2 = np.max(np.max(dyn_all2, 0) - np.min(dyn_all2, 0))
+                result[delay2] = diff2
+            if result[delay1] < criteria_dyn and (result[delay2] > criteria_dyn or np.isnan(result[delay2])):
+                delay1 = np.round(delay1 + delta_delay/2, 10)
+            elif result[delay1] > criteria_dyn or np.isnan(result[delay1]):
+                delay2 = np.round(delay1, 10)
+                delay1 = np.round(delay1 - delta_delay, 10)
+            elif result[delay2] < criteria_dyn:
+                delay1 = delay2
+                delay2 = delay2 * 2
+            delta_delay = delay2 - delay1 
+        print(seed, delay1, delay2)
+        data = np.hstack((seed, delay1))
+        des = '../data/' + dynamics + '/' + network_type + '/tau_evo/'
+        if not os.path.exists(des):
+            os.makedirs(des)
+        if betaeffect:
+            des_file = des + f'N={N}_d={d}_beta={beta}_tau_RK.csv'
+        else:
+            des_file = des + f'N={N}_d={d}_wt={beta}_tau_RK.csv'
+
+        df = pd.DataFrame(data.reshape(1, np.size(data)))
+        df.to_csv(des_file, index=None, header=None, mode='a')
+        return None
 
 
 
@@ -1307,7 +1393,7 @@ def mutual_multi(x, t, arguments, net_arguments):
     dxdt = sum_f + x * np.add.reduceat(sum_g, cum_index[:-1])
     return dxdt
 
-def mutual_multi_delay(f, x0, t, dt, d, arguments, net_arguments):
+def mutual_multi_delay(f, x0, x, t, dt, d, arguments, net_arguments):
     """describe the derivative of x.
     set universal parameters 
     :x: the species abundance of plant network 
@@ -1316,7 +1402,6 @@ def mutual_multi_delay(f, x0, t, dt, d, arguments, net_arguments):
     :returns: derivative of x 
 
     """
-    x = f[int(t/dt)]
     xd = np.where(t>d, f[int((t-d)/dt)], x0)
     B, C, D, E, H, K = arguments
     index_i, index_j, A_interaction, cum_index = net_arguments
@@ -1325,6 +1410,37 @@ def mutual_multi_delay(f, x0, t, dt, d, arguments, net_arguments):
     sum_g = A_interaction * x[index_j] / (D + E * x[index_i] + H * x[index_j])
     dxdt = sum_f + x * np.add.reduceat(sum_g, cum_index[:-1])
     return dxdt
+
+def mutual_multi_delay_ddeint(f, t, d, arguments, net_arguments):
+    """describe the derivative of x.
+    set universal parameters 
+    :x: the species abundance of plant network 
+    :t: the simulation time sequence 
+    :par: parameters  of this system
+    :returns: derivative of x 
+
+    """
+    x = f(t)
+    xd = f(t-d)
+    B, C, D, E, H, K = arguments
+    index_i, index_j, A_interaction, cum_index = net_arguments
+    x[np.where(x<0)] = 0  # Negative x is forbidden
+    sum_f = B + x * (1 - xd/K) * ( x/C - 1)
+    sum_g = A_interaction * x[index_j] / (D + E * x[index_i] + H * x[index_j])
+    dxdt = sum_f + x * np.add.reduceat(sum_g, cum_index[:-1])
+    return dxdt
+
+def mutual_multi_delay_jitc():
+    """describe the derivative of x.
+    set universal parameters 
+    :x: the species abundance of plant network 
+    :t: the simulation time sequence 
+    :par: parameters  of this system
+    :returns: derivative of x 
+
+    """
+    for i in range(N):
+        yield B + jy(i) * (1-jy(i, jt-d)/K) * (jy(i)/C-1) + sum(A[i, j] * jy(j) / (D + E * jy(i) + H * jy(j)) for j in range(N)) * jy(i)
 
 
 def mutual_one_delay(f, x0, t, dt, d, N, delay_node, index_i, index_j, A_interaction, cum_index, arguments):
@@ -1727,14 +1843,21 @@ def evolution_mutual_multi(network_type, N, seed, d, delay, beta, betaeffect, ar
     
     t2 = time.time()
     print(t2-t1)
-    plt.plot(t[::10], np.mean(dyn_all[::10], 1), alpha = alpha, linewidth=1, color='tab:red')
+    y = np.mean(dyn_all, 1)
+    dydt = np.diff(y) /dt
+    
+
+    plt.plot(t[::10], dyn_all[::10], alpha = alpha, linewidth=1, color='tab:red')
+    #plt.plot(y[1:][::10], dydt[0:][::10], '.', alpha = alpha, linewidth=2, color='tab:red')
     #plt.plot(t, dyn_all, alpha = alpha)
     plt.subplots_adjust(left=0.18, right=0.98, wspace=0.25, hspace=0.25, bottom=0.18, top=0.98)
     plt.xticks(fontsize=ticksize)
     plt.yticks(fontsize=ticksize)
     plt.xlabel('$t$', fontsize= fs)
     plt.ylabel('$x$', fontsize =fs)
-    plt.ylabel('$\\langle x\\rangle$', fontsize =fs)
+
+    plt.xlabel('$\\langle x\\rangle$', fontsize =fs)
+    plt.ylabel('$\\langle x\\rangle/dt$', fontsize =fs)
     #plt.show()
     return dyn_all
 
@@ -1946,6 +2069,7 @@ def evolution_multi(network_type, arguments, N, beta, betaeffect, d, seed, delay
 
     return None
 
+
 network_type = 'RR'
 N = 100
 
@@ -1992,17 +2116,19 @@ arguments = (r, K, c)
 tau_list = np.arange(1., 1.5, 0.1)
 nu_list = np.arange(0.1, 1.5, 0.5)
 
-"mutual"
-dynamics = 'mutual'
-arguments = (B, C, D, E, H, K_mutual)
-tau_list = np.arange(0.2, 0.5, 0.1)
-nu_list = np.arange(1, 10, 1)
 
 "PPI"
 dynamics = 'PPI'
 arguments = (B_PPI, F_PPI)
 tau_list = np.arange(0.1, 2, 0.5)
 nu_list = np.arange(0, 2, 0.5)
+
+"BDP"
+dynamics = 'BDP'
+arguments = (B_BDP, )
+tau_list = np.arange(0.5, 1, 0.2)
+nu_list = np.arange(1, 5, 2)
+
 
 
 "genereg"
@@ -2011,12 +2137,12 @@ arguments = (B_gene, )
 tau_list = np.arange(1, 2, 0.5)
 nu_list = np.arange(0.1, 1, 0.2)
 
-"BDP"
-dynamics = 'BDP'
-arguments = (B_BDP, )
-tau_list = np.arange(0.5, 1, 0.2)
-nu_list = np.arange(1, 5, 2)
 
+"mutual"
+dynamics = 'mutual'
+arguments = (B, C, D, E, H, K_mutual)
+tau_list = np.arange(0.2, 0.5, 0.1)
+nu_list = np.arange(1, 10, 1)
 
 
 wk_list = np.arange(0.1, 20, 0.1)
@@ -2030,6 +2156,7 @@ d_SF = [[2.5, 999, 3], [3, 999, 4], [3.8, 999, 5]]
 d_ER = [100, 200, 400, 800, 1600]
 d_ER = [2000, 4000, 8000]
 d_ER = [200]
+#beta_list = np.arange(60, 100, 0.01)
 beta_list = [0.01]
 betaeffect = 0
 
@@ -2051,9 +2178,13 @@ for network_type in network_list:
             n = Net_Dyn(network_type, N, beta, betaeffect, seed_list, d, dynamics, attractor_value, arguments, tau_list, nu_list)
             #n.eigen_parallel('decouple_two')
             #n.eigen_parallel('eigen')
-            n.eigen_parallel('tau_evo', 0, 5)
+            #n.eigen_parallel('tau_evo', 0, 2)
+            n.eigen_parallel('tau_RK', 0, 2)
             #n.tau_decouple_eff()
-            #tau = n.tau_1D()
+
+for beta in beta_list:
+    n = Net_Dyn(network_type, N, beta, betaeffect, seed_list, d, dynamics, attractor_value, arguments, tau_list, nu_list)
+    #tau = n.tau_1D()
 
 #n.tau_decouple_wk(wk_list)
 
@@ -2062,4 +2193,5 @@ delay = 0.23
 beta = 4
 
 #evolution_mutual_single(delay, beta, arguments)
-evolution_mutual_multi("SF", 1000, [0, 0], [2.5, 999, 3], 0.28,  1, 1,  arguments)
+arguments = (B, C, D, E, H, K_mutual)
+#evolution_mutual_multi("ER", 1000, 41, 8000, 0.13,  1, 0,  arguments)
