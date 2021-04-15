@@ -750,7 +750,7 @@ class Net_Dyn:
         net_arguments = (index_i, index_j, A_interaction, cum_index)
 
         initial_condition = xs - 1e-3
-        t = np.arange(0, 200, 0.001)
+        t = np.arange(0, 200, 0.01)
         dyn_dif = 1
         delta_delay = delay2 - delay1
         result = dict()
@@ -824,7 +824,7 @@ def harvest_multi(x, t, arguments, net_arguments):
 
     return dxdt
 
-def harvest_multi_delay(f, x0, t, dt, d, arguments, net_arguments):
+def harvest_multi_delay(f, x0, x, t, dt, d, arguments, net_arguments):
     """describe the derivative of x.
     set universal parameters 
     :x: the species abundance of plant network 
@@ -833,8 +833,7 @@ def harvest_multi_delay(f, x0, t, dt, d, arguments, net_arguments):
     :returns: derivative of x 
 
     """
-    x = f[int(t/dt)]
-    xd = np.where(t>d, f[int((t-d)/dt)], x0)
+    xd = np.where(t>d, (f[int(round((t-d)/dt))] + f[int(round((t-d)/dt)) +1])/2, x0)
     index_i, index_j, A_interaction, cum_index = net_arguments
     r, K, c = arguments
     x[np.where(x<0)] = 0  # Negative x is forbidden
@@ -953,15 +952,15 @@ def genereg_multi(x, t, arguments, net_arguments):
 
     return dxdt
 
-def genereg_multi_delay(f, x0, t, dt, d, arguments, net_arguments):
+def genereg_multi_delay(f, x0, x, t, dt, d, arguments, net_arguments):
     """original dynamics N species interaction.
 
     :x: N dynamic variables, 1 * N vector 
     :returns: derivative of x 
 
     """
-    x = f[int(t/dt)]
-    xd = np.where(t>d, f[int((t-d)/dt)], x0)
+    index = int(round((t-d)/dt))
+    xd = np.where(t>d, f[index], x0)
     B, = arguments
     index_i, index_j, A_interaction, cum_index = net_arguments
     #x[np.where(x<0)] = 0  # Negative x is forbidden
@@ -1052,15 +1051,15 @@ def SIS_multi(x, t, arguments, net_arguments):
     dxdt = sum_f + np.add.reduceat(sum_g, cum_index[:-1])
     return dxdt
 
-def SIS_multi_delay(f, x0, t, dt, d, arguments, net_arguments):
+def SIS_multi_delay(f, x0, x, t, dt, d, arguments, net_arguments):
     """original dynamics N species interaction.
 
     :x: N dynamic variables, 1 * N vector 
     :returns: derivative of x 
 
     """
-    x = f[int(t/dt)]
-    xd = np.where(t>d, f[int((t-d)/dt)], x0)
+    index = int(round((t-d)/dt))
+    xd = np.where(t>d, f[index], x0)
     B, = arguments
     index_i, index_j, A_interaction, cum_index = net_arguments
     #x[np.where(x<0)] = 0  # Negative x is forbidden
@@ -1132,15 +1131,15 @@ def BDP_multi(x, t, arguments, net_arguments):
     dxdt = sum_f + np.add.reduceat(sum_g, cum_index[:-1])
     return dxdt
 
-def BDP_multi_delay(f, x0, t, dt, d, arguments, net_arguments):
+def BDP_multi_delay(f, x0, x, t, dt, d, arguments, net_arguments):
     """original dynamics N species interaction.
 
     :x: N dynamic variables, 1 * N vector 
     :returns: derivative of x 
 
     """
-    x = f[int(t/dt)]
-    xd = np.where(t>d, f[int((t-d)/dt)], x0)
+    index = int(round((t-d)/dt))
+    xd = np.where(t>d, f[index], x0)
     B, = arguments
     index_i, index_j, A_interaction, cum_index = net_arguments
     #x[np.where(x<0)] = 0  # Negative x is forbidden
@@ -1213,15 +1212,15 @@ def PPI_multi(x, t, arguments, net_arguments):
     dxdt = sum_f + np.add.reduceat(sum_g, cum_index[:-1])
     return dxdt
 
-def PPI_multi_delay(f, x0, t, dt, d, arguments, net_arguments):
+def PPI_multi_delay(f, x0, x, t, dt, d, arguments, net_arguments):
     """original dynamics N species interaction.
 
     :x: N dynamic variables, 1 * N vector 
     :returns: derivative of x 
 
     """
-    x = f[int(t/dt)]
-    xd = np.where(t>d, f[int((t-d)/dt)], x0)
+    index = int(round((t-d)/dt))
+    xd = np.where(t>d, f[index], x0)
     B, F = arguments
     index_i, index_j, A_interaction, cum_index = net_arguments
     #x[np.where(x<0)] = 0  # Negative x is forbidden
@@ -1313,15 +1312,15 @@ def CW_multi(x, t, arguments, net_arguments):
     dxdt = sum_f + np.add.reduceat(sum_g, cum_index[:-1])
     return dxdt
 
-def CW_multi_delay(f, x0, t, dt, d, arguments, net_arguments):
+def CW_multi_delay(f, x0, x, t, dt, d, arguments, net_arguments):
     """original dynamics N species interaction.
 
     :x: N dynamic variables, 1 * N vector 
     :returns: derivative of x 
 
     """
-    x = f[int(t/dt)]
-    xd = np.where(t>d, f[int((t-d)/dt)], x0)
+    index = int(round((t-d)/dt))
+    xd = np.where(t>d, f[index], x0)
     a, b = arguments
     index_i, index_j, A_interaction, cum_index = net_arguments
     #x[np.where(x<0)] = 0  # Negative x is forbidden
@@ -1402,7 +1401,8 @@ def mutual_multi_delay(f, x0, x, t, dt, d, arguments, net_arguments):
     :returns: derivative of x 
 
     """
-    xd = np.where(t>d, f[int((t-d)/dt)], x0)
+    index = int(round((t-d)/dt))
+    xd = np.where(t>d, f[index], x0)
     B, C, D, E, H, K = arguments
     index_i, index_j, A_interaction, cum_index = net_arguments
     x[np.where(x<0)] = 0  # Negative x is forbidden
@@ -2071,7 +2071,7 @@ def evolution_multi(network_type, arguments, N, beta, betaeffect, d, seed, delay
 
 
 network_type = 'RR'
-N = 100
+N = 1000
 
 beta = 1
 betaeffect = 1
@@ -2155,7 +2155,7 @@ d_SF = [[3, 999, 4], [3.8, 999, 5]]
 d_SF = [[2.5, 999, 3], [3, 999, 4], [3.8, 999, 5]]
 d_ER = [100, 200, 400, 800, 1600]
 d_ER = [2000, 4000, 8000]
-d_ER = [200]
+d_ER = [2000]
 #beta_list = np.arange(60, 100, 0.01)
 beta_list = [0.01]
 betaeffect = 0
