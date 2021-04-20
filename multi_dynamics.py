@@ -260,6 +260,8 @@ class Net_Dyn:
             p.starmap_async(self.tau_evolution, [(seed, delay1, delay2) for seed in self.seed_list]).get()
         elif function == 'tau_RK':
             p.starmap_async(self.tau_RK, [(seed, delay1, delay2) for seed in self.seed_list]).get()
+        elif function == 'tau_eff':
+            p.starmap_async(self.tau_decouple_eff, [(seed) for seed in self.seed_list]).get()
         p.close()
         p.join()
         return None
@@ -322,7 +324,7 @@ class Net_Dyn:
         df.to_csv(des_file, index=None, header=None, mode='a')
         return None
 
-    def tau_decouple_eff(self):
+    def tau_decouple_eff(self, seed):
         """TODO: Docstring for tau_kmax.
 
         :network_type: TODO
@@ -345,79 +347,77 @@ class Net_Dyn:
 
 
         t = np.arange(0, 1000, 0.01)
-        for seed in seed_list:
-            A, A_interaction, index_i, index_j, cum_index = network_generate(network_type, N, beta, betaeffect, seed, d)
-            beta_eff, _ = betaspace(A, [0])
-            wk = np.sum(A, 0)
-            index_list = np.argsort(wk)
-            tau_list = np.ones(len(index_list)) * (-1)
-            for index, i in zip(index_list, range(len(index_list))):
-                w = np.sum(A[index])
-                if dynamics == 'mutual':
-                    B, C, D, E, H, K = arguments
-                    xs = odeint(mutual_decouple_two, np.ones(2) * attractor_value, t, args=(w, beta_eff, arguments))[-1]
-                    x1, x2 = xs
-                    P =  - (w * x2)/(D + E * x1 + H * x2) + (w * E * x1 * x2)/(D + E * x1 + H * x2)**2 -(1-x1/K) * (2*x1/C-1)
-                    Q = x1/K*(x1/C-1)
+        A, A_interaction, index_i, index_j, cum_index = network_generate(network_type, N, beta, betaeffect, seed, d)
+        beta_eff, _ = betaspace(A, [0])
+        wk = np.sum(A, 0)
+        index_list = np.argsort(wk)
+        tau_list = np.ones(len(index_list)) * (-1)
+        for index, i in zip(index_list, range(len(index_list))):
+            w = np.sum(A[index])
+            if dynamics == 'mutual':
+                B, C, D, E, H, K = arguments
+                xs = odeint(mutual_decouple_two, np.ones(2) * attractor_value, t, args=(w, beta_eff, arguments))[-1]
+                x1, x2 = xs
+                P =  - (w * x2)/(D + E * x1 + H * x2) + (w * E * x1 * x2)/(D + E * x1 + H * x2)**2 -(1-x1/K) * (2*x1/C-1)
+                Q = x1/K*(x1/C-1)
 
-                elif dynamics == 'harvest':
-                    r, K, c = arguments
-                    xs = odeint(harvest_decouple_two, np.ones(2) * attractor_value, t, args=(w, beta_eff, arguments))[-1]
-                    x1, x2 = xs
-                    P = -r * (1-x1/K) + 2 * c * x1 / (x1**2+1)**2 + w
-                    Q = r * x1 / K
+            elif dynamics == 'harvest':
+                r, K, c = arguments
+                xs = odeint(harvest_decouple_two, np.ones(2) * attractor_value, t, args=(w, beta_eff, arguments))[-1]
+                x1, x2 = xs
+                P = -r * (1-x1/K) + 2 * c * x1 / (x1**2+1)**2 + w
+                Q = r * x1 / K
 
-                elif dynamics == 'genereg':
-                    B, = arguments
-                    xs = odeint(genereg_decouple_two, np.ones(2) * attractor_value, t, args=(w, beta_eff, arguments))[-1]
-                    x1, x2 = xs
-                    P = 0
-                    Q = B
+            elif dynamics == 'genereg':
+                B, = arguments
+                xs = odeint(genereg_decouple_two, np.ones(2) * attractor_value, t, args=(w, beta_eff, arguments))[-1]
+                x1, x2 = xs
+                P = 0
+                Q = B
 
-                elif dynamics == 'SIS':
-                    B, = arguments
-                    xs = odeint(SIS_decouple_two, np.ones(2) * attractor_value, t, args=(w, beta_eff, arguments))[-1]
-                    x1, x2 = xs
-                    P = w * x2
-                    Q = B
+            elif dynamics == 'SIS':
+                B, = arguments
+                xs = odeint(SIS_decouple_two, np.ones(2) * attractor_value, t, args=(w, beta_eff, arguments))[-1]
+                x1, x2 = xs
+                P = w * x2
+                Q = B
 
-                elif dynamics == 'BDP':
-                    B, = arguments
-                    xs = odeint(BDP_decouple_two, np.ones(2) * attractor_value, t, args=(w, beta_eff, arguments))[-1]
-                    x1, x2 = xs
-                    P = 0
-                    Q = B * 2 * x1
+            elif dynamics == 'BDP':
+                B, = arguments
+                xs = odeint(BDP_decouple_two, np.ones(2) * attractor_value, t, args=(w, beta_eff, arguments))[-1]
+                x1, x2 = xs
+                P = 0
+                Q = B * 2 * x1
 
-                elif dynamics == 'PPI':
-                    B, F = arguments
-                    xs = odeint(PPI_decouple_two, np.ones(2) * attractor_value, t, args=(w, beta_eff, arguments))[-1]
-                    x1, x2 = xs
-                    P = w * x2
-                    Q = B
+            elif dynamics == 'PPI':
+                B, F = arguments
+                xs = odeint(PPI_decouple_two, np.ones(2) * attractor_value, t, args=(w, beta_eff, arguments))[-1]
+                x1, x2 = xs
+                P = w * x2
+                Q = B
 
-                elif dynamics == 'CW':
-                    a, b = arguments
-                    xs = odeint(CW_decouple_two, np.ones(2) * attractor_value, t, args=(w, beta_eff, arguments))[-1]
-                    x1, x2 = xs
-                    P = 0
-                    Q = 1
+            elif dynamics == 'CW':
+                a, b = arguments
+                xs = odeint(CW_decouple_two, np.ones(2) * attractor_value, t, args=(w, beta_eff, arguments))[-1]
+                x1, x2 = xs
+                P = 0
+                Q = 1
 
-                if abs(P/Q)<=1:
-                    tau_list[i] = np.arccos(-P/Q) /Q/np.sin(np.arccos(-P/Q)) 
-                    #print(tau_list[i])
-                else:
-                    print(xs, P, Q)
+            if abs(P/Q)<=1:
+                tau_list[i] = np.arccos(-P/Q) /Q/np.sin(np.arccos(-P/Q)) 
+                #print(tau_list[i])
+            else:
+                print(xs, P, Q)
 
 
-            tau = np.min(tau_list[tau_list>0])
-            tau_index = index_list[np.where(tau == tau_list)[0][0]]
-            data = np.hstack((seed, wk.max(), tau, wk[tau_index], np.where(np.sort(wk)[::-1]==wk[tau_index])[0][-1]))
-         
-            df = pd.DataFrame(data.reshape(1, np.size(data)))
-            df.to_csv(des_file, index=None, header=None, mode='a')
+        tau = np.min(tau_list[tau_list>0])
+        tau_index = index_list[np.where(tau == tau_list)[0][0]]
+        data = np.hstack((seed, wk.max(), tau, wk[tau_index], np.where(np.sort(wk)[::-1]==wk[tau_index])[0][-1]))
+     
+        df = pd.DataFrame(data.reshape(1, np.size(data)))
+        df.to_csv(des_file, index=None, header=None, mode='a')
 
-            print(seed, tau)
-
+        print(seed, tau)
         return None
 
     def tau_decouple_two(self, seed):
@@ -648,7 +648,7 @@ class Net_Dyn:
 
         return None
 
-    def tau_evolution(self, seed, delay1, delay2, criteria_dyn=1e-5, criteria_delay=2e-3):
+    def tau_evolution(self, seed, delay1, delay2, criteria_dyn=1e-3, criteria_delay=5e-3):
         """TODO: Docstring for tau_evolution.
 
         :network_type: TODO
@@ -681,17 +681,19 @@ class Net_Dyn:
         net_arguments = (index_i, index_j, A_interaction, cum_index)
 
         initial_condition = xs - 1e-3
-        t = np.arange(0, 200, 0.001)
+        dt = 0.001
+        t = np.arange(0, 200, dt)
+        index = int(10/dt)
         dyn_dif = 1
         delta_delay = delay2 - delay1
         result = dict()
         while delta_delay > criteria_delay:
             if delay1 not in result:
-                dyn_all1 = ddeint_Cheng(dynamics_function, initial_condition, t, *(delay1, arguments, net_arguments))[-10000:]
+                dyn_all1 = ddeint_Cheng(dynamics_function, initial_condition, t, *(delay1, arguments, net_arguments))[-index:]
                 diff1 = np.max(np.max(dyn_all1, 0) - np.min(dyn_all1, 0))
                 result[delay1] = diff1
             if delay2 not in result:
-                dyn_all2 = ddeint_Cheng(dynamics_function, initial_condition, t, *(delay2, arguments, net_arguments))[-10000:]
+                dyn_all2 = ddeint_Cheng(dynamics_function, initial_condition, t, *(delay2, arguments, net_arguments))[-index:]
                 diff2 = np.max(np.max(dyn_all2, 0) - np.min(dyn_all2, 0))
                 result[delay2] = diff2
             if result[delay1] < criteria_dyn and (result[delay2] > criteria_dyn or np.isnan(result[delay2])):
@@ -709,15 +711,15 @@ class Net_Dyn:
         if not os.path.exists(des):
             os.makedirs(des)
         if betaeffect:
-            des_file = des + f'N={N}_d={d}_beta={beta}_tau_evolution.csv'
+            des_file = des + f'N={N}_d={d}_beta={beta}_tau_Euler.csv'
         else:
-            des_file = des + f'N={N}_d={d}_wt={beta}_tau_evolution.csv'
+            des_file = des + f'N={N}_d={d}_wt={beta}_tau_Euler.csv'
 
         df = pd.DataFrame(data.reshape(1, np.size(data)))
         df.to_csv(des_file, index=None, header=None, mode='a')
         return None
 
-    def tau_RK(self, seed, delay1, delay2, criteria_dyn=1e-5, criteria_delay=2e-3):
+    def tau_RK(self, seed, delay1, delay2, criteria_dyn=1e-3, criteria_delay=5e-3):
         """TODO: Docstring for tau_evolution.
 
         :network_type: TODO
@@ -750,18 +752,22 @@ class Net_Dyn:
         net_arguments = (index_i, index_j, A_interaction, cum_index)
 
         initial_condition = xs - 1e-3
-        t = np.arange(0, 200, 0.01)
+        dt = 0.01
+        t = np.arange(0, 200, dt)
+        index = int(10/dt)
         dyn_dif = 1
         delta_delay = delay2 - delay1
         result = dict()
         while delta_delay > criteria_delay:
+            if delay1 < 0:
+                print(seed, delay1, delay2)
             if delay1 not in result:
-                dyn_all1 = dde_RK45(dynamics_function, initial_condition, t, *(delay1, arguments, net_arguments))[-10000:]
-                diff1 = np.max(np.max(dyn_all1, 0) - np.min(dyn_all1, 0))
+                dyn_all1 = dde_RK45(dynamics_function, initial_condition, t, *(delay1, arguments, net_arguments))[-index:]
+                diff1 = max(np.max(np.max(dyn_all1, 0) - np.min(dyn_all1, 0)), np.max(np.abs(dyn_all1[-1]-xs)))
                 result[delay1] = diff1
             if delay2 not in result:
-                dyn_all2 = dde_RK45(dynamics_function, initial_condition, t, *(delay2, arguments, net_arguments))[-10000:]
-                diff2 = np.max(np.max(dyn_all2, 0) - np.min(dyn_all2, 0))
+                dyn_all2 = dde_RK45(dynamics_function, initial_condition, t, *(delay2, arguments, net_arguments))[-index:]
+                diff2 = np.max(np.max(dyn_all2, 0) - np.min(dyn_all2, 0), np.max(np.abs(dyn_all2[-1]-xs)))
                 result[delay2] = diff2
             if result[delay1] < criteria_dyn and (result[delay2] > criteria_dyn or np.isnan(result[delay2])):
                 delay1 = np.round(delay1 + delta_delay/2, 10)
@@ -785,7 +791,6 @@ class Net_Dyn:
         df = pd.DataFrame(data.reshape(1, np.size(data)))
         df.to_csv(des_file, index=None, header=None, mode='a')
         return None
-
 
 
 
@@ -888,6 +893,23 @@ def harvest_decouple_two_delay(f, x0, t, dt, d, w, beta, arguments):
     dxdt = sum_f + sum_g
     return dxdt
 
+def harvest_decouple_eff_delay(f, x0, x, t, dt, d, w, beta, arguments):
+    """describe the derivative of x.
+    set universal parameters 
+    :x: the species abundance of plant network 
+    :t: the simulation time sequence 
+    :par: parameters  of this system
+    :returns: derivative of x 
+
+    """
+    xd = np.where(t>d, f[int((t-d)/dt)], x0)
+    r, K, c = arguments
+    x[np.where(x<0)] = 0  # Negative x is forbidden
+    sum_f = np.array([r * x[0] * (1 - xd[0]/K) - c * x[0]**2 / (x[0]**2 + 1), r * x[1] * (1 - x[1]/K) - c * x[1]**2 / (x[1]**2 + 1)])
+    sum_g = np.array([w * (x[1] - x[0]), 0])
+    dxdt = sum_f + sum_g
+    return dxdt
+
 def harvest_decouple_two(x, t, w, beta, arguments):
     """describe the derivative of x.
     set universal parameters 
@@ -984,6 +1006,23 @@ def genereg_decouple_two_delay(f, x0, t, dt, d, w, beta, arguments):
     B, = arguments
     #x[np.where(x<0)] = 0  # Negative x is forbidden
     sum_f = -B * xd
+    sum_g = np.array([w * (x[1]**2/(x[1]**2+1)), beta * (x[1]**2/(x[1]**2+1))])
+    dxdt = sum_f + sum_g
+    return dxdt
+
+def genereg_decouple_eff_delay(f, x0, x, t, dt, d, w, beta, arguments):
+    """describe the derivative of x.
+    set universal parameters 
+    :x: the species abundance of plant network 
+    :t: the simulation time sequence 
+    :par: parameters  of this system
+    :returns: derivative of x 
+
+    """
+    xd = np.where(t>d, f[int((t-d)/dt)], x0)
+    B, = arguments
+    #x[np.where(x<0)] = 0  # Negative x is forbidden
+    sum_f = np.array([-B * xd[0], -B * x[1]])
     sum_g = np.array([w * (x[1]**2/(x[1]**2+1)), beta * (x[1]**2/(x[1]**2+1))])
     dxdt = sum_f + sum_g
     return dxdt
@@ -1163,6 +1202,38 @@ def BDP_decouple_two(x, t, w, beta, arguments):
     dxdt = sum_f + sum_g
     return dxdt
 
+def BDP_decouple_eff_delay(f, x0, x, t, dt, d, w, beta, arguments):
+    """describe the derivative of x.
+    set universal parameters 
+    :x: the species abundance of plant network 
+    :t: the simulation time sequence 
+    :par: parameters  of this system
+    :returns: derivative of x 
+
+    """
+    xd = np.where(t>d, f[int((t-d)/dt)], x0)
+    B, = arguments
+    #x[np.where(x<0)] = 0  # Negative x is forbidden
+    sum_f = np.array([-B * xd[0] ** 2, -B * x[1] ** 2])
+    sum_g = np.array([w * x[1], beta * x[1]])
+    dxdt = sum_f + sum_g
+    return dxdt
+
+def BDP_decouple_eff(x, t, w, beta, arguments):
+    """describe the derivative of x.
+    set universal parameters 
+    :x: the species abundance of plant network 
+    :t: the simulation time sequence 
+    :par: parameters  of this system
+    :returns: derivative of x 
+
+    """
+    B, = arguments
+    #x[np.where(x<0)] = 0  # Negative x is forbidden
+    sum_f = np.array([-B * x[0] ** 2, -B * x[1] ** 2])
+    sum_g = np.array([w * x[1], beta * x[1]])
+    dxdt = sum_f + sum_g
+    return dxdt
 
 
 def PPI_single(x, t, beta, arguments):
@@ -1259,8 +1330,36 @@ def PPI_decouple_two_delay(f, x0, t, dt, d, w, beta, arguments):
     sum_f = F - B * xd
     sum_g = np.array([- w * x[0] * x[1], - beta * x[1] * x[1]])
     dxdt = sum_f + sum_g
+    return dxdt
+
+def PPI_decouple_eff_delay(f, x0, x, t, dt, d, w, beta, arguments):
+    """describe the derivative of x.
+    set universal parameters 
+    :x: the species abundance of plant network 
+    :t: the simulation time sequence 
+    :par: parameters  of this system
+    :returns: derivative of x 
+
+    """
     xd = np.where(t>d, f[int((t-d)/dt)], x0)
-    #x[np.where(x<0)] = 0  # Negative x is forbidden
+    B, F = arguments
+    sum_f = np.array([F - B * xd[0], F - B * x[1]])
+    sum_g = np.array([- w * x[0] * x[1], - beta * x[1] * x[1]])
+    dxdt = sum_f + sum_g
+    return dxdt
+
+def PPI_decouple_eff(x, t, w, beta, arguments):
+    """describe the derivative of x.
+    set universal parameters 
+    :x: the species abundance of plant network 
+    :t: the simulation time sequence 
+    :par: parameters  of this system
+    :returns: derivative of x 
+
+    """
+    B, F = arguments
+    sum_f = np.array([F - B * x[0], F - B * x[1]])
+    sum_g = np.array([- w * x[0] * x[1], - beta * x[1] * x[1]])
     dxdt = sum_f + sum_g
     return dxdt
 
@@ -1405,13 +1504,13 @@ def mutual_multi_delay(f, x0, x, t, dt, d, arguments, net_arguments):
     xd = np.where(t>d, f[index], x0)
     B, C, D, E, H, K = arguments
     index_i, index_j, A_interaction, cum_index = net_arguments
-    x[np.where(x<0)] = 0  # Negative x is forbidden
+    #x[np.where(x<0)] = 0  # Negative x is forbidden
     sum_f = B + x * (1 - xd/K) * ( x/C - 1)
     sum_g = A_interaction * x[index_j] / (D + E * x[index_i] + H * x[index_j])
     dxdt = sum_f + x * np.add.reduceat(sum_g, cum_index[:-1])
     return dxdt
 
-def mutual_multi_delay_ddeint(f, t, d, arguments, net_arguments):
+def mutual_decouple_two(x, t, w, beta, arguments):
     """describe the derivative of x.
     set universal parameters 
     :x: the species abundance of plant network 
@@ -1420,17 +1519,13 @@ def mutual_multi_delay_ddeint(f, t, d, arguments, net_arguments):
     :returns: derivative of x 
 
     """
-    x = f(t)
-    xd = f(t-d)
     B, C, D, E, H, K = arguments
-    index_i, index_j, A_interaction, cum_index = net_arguments
-    x[np.where(x<0)] = 0  # Negative x is forbidden
-    sum_f = B + x * (1 - xd/K) * ( x/C - 1)
-    sum_g = A_interaction * x[index_j] / (D + E * x[index_i] + H * x[index_j])
-    dxdt = sum_f + x * np.add.reduceat(sum_g, cum_index[:-1])
+    sum_f = B + x * (1 - x/K) * ( x/C - 1)
+    sum_g = np.array([w * x[0] * x[1] / (D + E * x[0] + H * x[1]), beta * x[1] * x[1] / (D + E * x[1] + H * x[1])])
+    dxdt = sum_f + sum_g
     return dxdt
 
-def mutual_multi_delay_jitc():
+def mutual_decouple_two_delay(f, x0, x, t, dt, d, w, beta, arguments):
     """describe the derivative of x.
     set universal parameters 
     :x: the species abundance of plant network 
@@ -1439,29 +1534,48 @@ def mutual_multi_delay_jitc():
     :returns: derivative of x 
 
     """
-    for i in range(N):
-        yield B + jy(i) * (1-jy(i, jt-d)/K) * (jy(i)/C-1) + sum(A[i, j] * jy(j) / (D + E * jy(i) + H * jy(j)) for j in range(N)) * jy(i)
-
-
-def mutual_one_delay(f, x0, t, dt, d, N, delay_node, index_i, index_j, A_interaction, cum_index, arguments):
-    """describe the derivative of x.
-    set universal parameters 
-    :x: the species abundance of plant network 
-    :t: the simulation time sequence 
-    :par: parameters  of this system
-    :returns: derivative of x 
-
-    """
-    x = f[int(t/dt)]
     xd = np.where(t>d, f[int((t-d)/dt)], x0)
     B, C, D, E, H, K = arguments
     x[np.where(x<0)] = 0  # Negative x is forbidden
-    sum_f = B + x * (1 - x/K) * ( x/C - 1)
-    sum_f[delay_node] = B + x[delay_node] * (1 - xd[delay_node]/K) * ( x[delay_node]/C - 1)
-    sum_g = A_interaction * x[index_j] / (D + E * x[index_i] + H * x[index_j])
-
-    dxdt = sum_f + x * np.add.reduceat(sum_g, cum_index[:-1])
+    sum_f = B + x * (1 - xd/K) * ( x/C - 1)
+    sum_g = np.array([w * x[0] * x[1] / (D + E * x[0] + H * x[1]), beta * x[1] * x[1] / (D + E * x[1] + H * x[1])])
+    dxdt = sum_f + sum_g
     return dxdt
+
+def mutual_decouple_eff_delay(f, x0, x, t, dt, d, w, beta, arguments):
+    """describe the derivative of x.
+    set universal parameters 
+    :x: the species abundance of plant network 
+    :t: the simulation time sequence 
+    :par: parameters  of this system
+    :returns: derivative of x 
+
+    """
+    xd = np.where(t>d, f[int((t-d)/dt)], x0)
+    B, C, D, E, H, K = arguments
+    #x[np.where(x<0)] = 0  # Negative x is forbidden
+    sum_f = np.array([B + x[0] * (1 - xd[0]/K) * (x[0]/C - 1), B + x[1] * (1-x[1]/K) * (x[1]/C - 1)])
+    sum_g = np.array([w * x[0]*x[1] / (D + E * x[0] +H * x[1]), beta * x[1]**2 / (D + (E+H) * x[1])])
+    dxdt = sum_f + sum_g
+    return dxdt
+
+def mutual_decouple_eff(x, t, w, beta, arguments):
+    """describe the derivative of x.
+    set universal parameters 
+    :x: the species abundance of plant network 
+    :t: the simulation time sequence 
+    :par: parameters  of this system
+    :returns: derivative of x 
+
+    """
+    B, C, D, E, H, K = arguments
+    #x[np.where(x<0)] = 0  # Negative x is forbidden
+    sum_f = np.array([B + x[0] * (1 - x[0]/K) * (x[0]/C - 1), B + x[1] * (1-x[1]/K) * (x[1]/C - 1)])
+    sum_g = np.array([w * x[0]*x[1] / (D + E * x[0] +H * x[1]), beta * x[1]**2 / (D + (E+H) * x[1])])
+    dxdt = sum_f + sum_g
+    return dxdt
+
+
 
 def eigenvalue_zero(x, A, fx, fxt, gx_i, gx_j):
     """TODO: Docstring for matrix_variable.
@@ -1509,39 +1623,6 @@ def determinant_two_decouple(x, fx, fxt, g_matrix):
     determinant = np.linalg.det(M)
     return np.array([np.real(determinant), np.imag(determinant)])
 
-def mutual_decouple_two_delay(f, x0, t, dt, d, w, beta, arguments):
-    """describe the derivative of x.
-    set universal parameters 
-    :x: the species abundance of plant network 
-    :t: the simulation time sequence 
-    :par: parameters  of this system
-    :returns: derivative of x 
-
-    """
-    x = f[int(t/dt)]
-    xd = np.where(t>d, f[int((t-d)/dt)], x0)
-
-    B, C, D, E, H, K = arguments
-    x[np.where(x<0)] = 0  # Negative x is forbidden
-    sum_f = B + x * (1 - xd/K) * ( x/C - 1)
-    sum_g = np.array([w * x[0] * x[1] / (D + E * x[0] + H * x[1]), beta * x[1] * x[1] / (D + E * x[1] + H * x[1])])
-    dxdt = sum_f + sum_g
-    return dxdt
-
-def mutual_decouple_two(x, t, w, beta, arguments):
-    """describe the derivative of x.
-    set universal parameters 
-    :x: the species abundance of plant network 
-    :t: the simulation time sequence 
-    :par: parameters  of this system
-    :returns: derivative of x 
-
-    """
-    B, C, D, E, H, K = arguments
-    sum_f = B + x * (1 - x/K) * ( x/C - 1)
-    sum_g = np.array([w * x[0] * x[1] / (D + E * x[0] + H * x[1]), beta * x[1] * x[1] / (D + E * x[1] + H * x[1])])
-    dxdt = sum_f + sum_g
-    return dxdt
 
 def mutual_1D_delay(f, x0, t, dt, d1, d2, d3, beta, arguments):
     """TODO: Docstring for harvest_single_delay.
@@ -2062,8 +2143,63 @@ def evolution_multi(network_type, arguments, N, beta, betaeffect, d, seed, delay
     plt.xlabel('$t$', fontsize= fs)
     plt.ylabel('$x$', fontsize =fs)
     plt.locator_params(axis='x', nbins=5)
-    #plt.legend(fontsize=legendsize, frameon=False)
+    plt.legend(fontsize=legendsize, frameon=False)
 
+    plt.show()
+    #plt.close()
+
+    return None
+
+def evolution_compare_eff(dynamics, network_type, arguments, N, beta, betaeffect, d, seed, delay, index):
+    """TODO: Docstring for evolution_compare.
+
+    :network_type: TODO
+    :dynamics: TODO
+    :arguments: TODO
+    :N: TODO
+    :beta: TODO
+    :betaeffect: TODO
+    :d: TODO
+    :returns: TODO
+
+    """
+
+    function_multi =  globals()[dynamics + '_multi']
+    function_multi_delay =  globals()[dynamics + '_multi_delay']
+    function_decouple =  globals()[dynamics + '_decouple_eff']
+    function_decouple_delay =  globals()[dynamics + '_decouple_eff_delay']
+
+    A, A_interaction, index_i, index_j, cum_index = network_generate(network_type, N, beta, betaeffect, seed, d)
+    beta, _ = betaspace(A, [0])
+    N_actual = np.size(A, 0)
+    w_list = np.sum(A, 0)
+    w = np.sort(w_list)[::-1][index]
+    A_index = np.where(w_list == w)[0][0]
+    net_arguments = (index_i, index_j, A_interaction, cum_index)
+    print(beta, w)
+
+    initial_condition = np.ones((N_actual)) * 1
+    t = np.arange(0, 20, 0.01)
+    dt = 0.01
+    xs = odeint(function_multi, initial_condition, t, args=(arguments, net_arguments))[-1]
+    xs_eff = odeint(function_decouple, initial_condition[:2], t, args=(w, beta, arguments))[-1]
+    dyn_multi = dde_RK45(function_multi_delay, initial_condition, t, *(delay, arguments, net_arguments))
+    dyn_eff = dde_RK45(function_decouple_delay, initial_condition[:2], t, *(delay, w, beta, arguments))
+
+    index_neighbor = np.where(A[A_index]>0)[0]
+    s = np.sum(A[index_neighbor], 1)
+    plt.plot(t[:], np.mean(dyn_multi[:, index_neighbor], 1), '-', color='tab:red', linewidth=lw, alpha=alpha, label='multi')
+    plt.plot(t[:], dyn_eff[:, 1], '-', color='tab:blue', linewidth=lw, alpha=alpha, label='decouple')
+
+    #plt.plot(t[:], dyn_multi[:, A_index], '-', color='tab:red', linewidth=lw, alpha=alpha, label='multi')
+    #plt.plot(t[:], dyn_eff[:, 0], '-', color='tab:blue', linewidth=lw, alpha=alpha, label='decouple')
+    plt.subplots_adjust(left=0.18, right=0.98, wspace=0.25, hspace=0.25, bottom=0.18, top=0.98)
+    plt.xticks(fontsize=ticksize)
+    plt.yticks(fontsize=ticksize)
+    plt.xlabel('$t$', fontsize= fs)
+    plt.ylabel('$x$', fontsize =fs)
+    plt.locator_params(axis='x', nbins=5)
+    plt.legend(fontsize=legendsize, frameon=False)
     plt.show()
     #plt.close()
 
@@ -2130,6 +2266,11 @@ tau_list = np.arange(0.5, 1, 0.2)
 nu_list = np.arange(1, 5, 2)
 
 
+"mutual"
+dynamics = 'mutual'
+arguments = (B, C, D, E, H, K_mutual)
+tau_list = np.arange(0.2, 0.5, 0.1)
+nu_list = np.arange(1, 10, 1)
 
 "genereg"
 dynamics = 'genereg'
@@ -2138,26 +2279,21 @@ tau_list = np.arange(1, 2, 0.5)
 nu_list = np.arange(0.1, 1, 0.2)
 
 
-"mutual"
-dynamics = 'mutual'
-arguments = (B, C, D, E, H, K_mutual)
-tau_list = np.arange(0.2, 0.5, 0.1)
-nu_list = np.arange(1, 10, 1)
 
 
 wk_list = np.arange(0.1, 20, 0.1)
 #n.tau_decouple_two()
 network_list = ['SF', 'ER', 'RR']
-network_list = ['ER']
+network_list = ['SF']
 d_RR = [4]
 d_SF = [[2.5, 99, 3], [3, 99, 3], [3.5, 99, 3], [4, 99, 3]]
-d_SF = [[3, 999, 4], [3.8, 999, 5]]
 d_SF = [[2.5, 999, 3], [3, 999, 4], [3.8, 999, 5]]
+d_SF = [[2.5, 999, 3]]
 d_ER = [100, 200, 400, 800, 1600]
 d_ER = [2000, 4000, 8000]
 d_ER = [2000]
 #beta_list = np.arange(60, 100, 0.01)
-beta_list = [0.01]
+beta_list = [0.1]
 betaeffect = 0
 
 for network_type in network_list:
@@ -2179,7 +2315,7 @@ for network_type in network_list:
             #n.eigen_parallel('decouple_two')
             #n.eigen_parallel('eigen')
             #n.eigen_parallel('tau_evo', 0, 2)
-            n.eigen_parallel('tau_RK', 0, 2)
+            #n.eigen_parallel('tau_RK', 0, 2)
             #n.tau_decouple_eff()
 
 for beta in beta_list:
@@ -2189,9 +2325,23 @@ for beta in beta_list:
 #n.tau_decouple_wk(wk_list)
 
 
-delay = 0.23
-beta = 4
+beta = 0.1
+delay = 0.05
 
 #evolution_mutual_single(delay, beta, arguments)
+dynamics ='mutual'
 arguments = (B, C, D, E, H, K_mutual)
+dynamics = 'PPI'
+arguments = (B_PPI, F_PPI)
+dynamics = 'BDP'
+arguments = (B_BDP, )
 #evolution_mutual_multi("ER", 1000, 41, 8000, 0.13,  1, 0,  arguments)
+network_type = 'ER'
+d = 2000
+seed = 0
+network_type = 'SF'
+seed = [0, 0]
+d = [2.5, 999, 3]
+
+index = 0
+evolution_compare_eff(dynamics, network_type, arguments, N, beta, betaeffect, d, seed, delay, index)
