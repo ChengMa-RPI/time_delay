@@ -30,7 +30,7 @@ from jitcdde import t as jt
 
 mpl.rcParams['axes.prop_cycle'] = cycler(color=['tab:blue', 'tab:orange', 'tab:green', 'tab:red', 'tab:purple', 'tab:brown', 'tab:pink', 'grey', 'tab:olive', 'tab:cyan']) 
 
-cpu_number = 4
+cpu_number = 8
 B = 0.1
 C = 1
 K_mutual = 5
@@ -150,6 +150,89 @@ class Net_Dyn:
 
         return None
 
+    def eigen_diagonal(self, seed):
+        """TODO: Docstring for eigen_fg.
+
+        :dynamics: TODO
+        :xs: TODO
+        :arguments: TODO
+        :returns: TODO
+
+        """
+
+        xs = self.multi_stable(seed)
+        network_type, N, N_actual, beta, betaeffect, d, dynamics, attractor_value, arguments, A, tau_list, nu_list = self.network_type, self.N, self.N_actual, self.beta, self.betaeffect, self.d, self.dynamics, self.attractor_value, self.arguments, self.A, self.tau_list, self.nu_list
+        
+        if dynamics == 'mutual':
+            B, C, D, E, H, K = arguments
+            fx = (1-xs/K) * (2*xs/C-1)
+            fxt = -xs/K*(xs/C-1)
+            xs_T = xs.reshape(len(xs), 1)
+            denominator = D + E * xs + H * xs_T
+            "A should be transposed to A_ji"
+            gx_i = np.sum(A * (xs_T/denominator - E * xs * xs_T/denominator ** 2 ), 0)
+        elif dynamics == 'harvest':
+            r, K, c = arguments
+            fx = r * (1-xs/K) - 2 * c * xs / (xs**2+1)**2
+            fxt = -r * xs  / K
+            gx_i = -np.sum(A, 0)
+        elif dynamics == 'genereg':
+            B, = arguments
+            fx = 0
+            fxt = -B * np.ones(N_actual)
+            gx_i = 0
+            gx_j = A * (2 * xs / (xs**2+1)**2) 
+        elif dynamics == 'SIS':
+            B, = arguments
+            fx = 0
+            fxt = -B  * np.ones(N_actual)
+            gx_i = - np.sum(A * xs, 1) 
+        elif dynamics == 'BDP':
+            B, = arguments
+            fx = 0
+            fxt = -B * 2 * xs
+            gx_i = 0
+            gx_j = A 
+        elif dynamics == 'PPI':
+            B, F = arguments
+            fx = 0
+            fxt = -B  * np.ones(N_actual)
+            gx_i = - np.sum(A * xs, 1)
+        elif dynamics == 'CW':
+            a, b = arguments
+            fx = 0
+            fxt = -1 * np.ones(N_actual) 
+            gx_i = 0
+
+
+        "compute eigenvalues"
+        P = - (fx + gx_i)
+        Q = - fxt
+        valid_index = np.where(np.abs(P/Q)<=1)[0]
+        if len(valid_index) == 0:
+            tau_critical = -1
+        else:
+            P_valid = P[valid_index]
+            Q_valid = Q[valid_index]
+            tau = np.arccos(-P_valid/Q_valid) / Q_valid /np.sin(np.arccos(-P_valid/Q_valid))
+            #nu = np.arccos(-P_valid/Q_valid)/tau
+            tau_critical = np.min(tau)
+
+        "save data"
+        data = np.hstack((seed, tau_critical))
+        des = '../data/' + dynamics + '/' + network_type + '/tau_multi/'
+        if not os.path.exists(des):
+            os.makedirs(des)
+        if betaeffect:
+            des_file = des + f'N={N}_d=' + str(d) + '_beta=' + str(beta) + '_diagonal.csv'
+        else:
+            des_file = des + f'N={N}_d=' + str(d) + '_wt=' + str(beta) + '_diagonal.csv'
+
+        df = pd.DataFrame(data.reshape(1, np.size(data)))
+        df.to_csv(des_file, index=None, header=None, mode='a')
+        print(seed, tau_critical)
+        return tau_critical
+
     def eigen_solution(self, seed):
         """TODO: Docstring for eigen_fg.
 
@@ -261,7 +344,11 @@ class Net_Dyn:
         elif function == 'tau_RK':
             p.starmap_async(self.tau_RK, [(seed, delay1, delay2) for seed in self.seed_list]).get()
         elif function == 'tau_eff':
-            p.starmap_async(self.tau_decouple_eff, [(seed) for seed in self.seed_list]).get()
+            p.starmap_async(self.tau_decouple_eff, [(seed, ) for seed in self.seed_list]).get()
+        elif function == 'eigen_diagonal':
+            p.starmap_async(self.eigen_diagonal, [(seed, ) for seed in self.seed_list]).get()
+        elif function == 'tau_separate':
+            p.starmap_async(self.tau_separate, [(seed,  delay1, delay2) for seed in self.seed_list]).get()
         p.close()
         p.join()
         return None
@@ -690,11 +777,11 @@ class Net_Dyn:
         while delta_delay > criteria_delay:
             if delay1 not in result:
                 dyn_all1 = ddeint_Cheng(dynamics_function, initial_condition, t, *(delay1, arguments, net_arguments))[-index:]
-                diff1 = np.max(np.max(dyn_all1, 0) - np.min(dyn_all1, 0))
+                diff1 = max(np.max(np.max(dyn_all1, 0) - np.min(dyn_all1, 0)), np.max(np.abs(dyn_all1[-1]-xs)))
                 result[delay1] = diff1
             if delay2 not in result:
                 dyn_all2 = ddeint_Cheng(dynamics_function, initial_condition, t, *(delay2, arguments, net_arguments))[-index:]
-                diff2 = np.max(np.max(dyn_all2, 0) - np.min(dyn_all2, 0))
+                diff2 = max(np.max(np.max(dyn_all2, 0) - np.min(dyn_all2, 0)), np.max(np.abs(dyn_all2[-1]-xs)))
                 result[delay2] = diff2
             if result[delay1] < criteria_dyn and (result[delay2] > criteria_dyn or np.isnan(result[delay2])):
                 delay1 = np.round(delay1 + delta_delay/2, 10)
@@ -767,7 +854,7 @@ class Net_Dyn:
                 result[delay1] = diff1
             if delay2 not in result:
                 dyn_all2 = dde_RK45(dynamics_function, initial_condition, t, *(delay2, arguments, net_arguments))[-index:]
-                diff2 = np.max(np.max(dyn_all2, 0) - np.min(dyn_all2, 0), np.max(np.abs(dyn_all2[-1]-xs)))
+                diff2 = max(np.max(np.max(dyn_all2, 0) - np.min(dyn_all2, 0)), np.max(np.abs(dyn_all2[-1]-xs)))
                 result[delay2] = diff2
             if result[delay1] < criteria_dyn and (result[delay2] > criteria_dyn or np.isnan(result[delay2])):
                 delay1 = np.round(delay1 + delta_delay/2, 10)
@@ -787,6 +874,90 @@ class Net_Dyn:
             des_file = des + f'N={N}_d={d}_beta={beta}_tau_RK.csv'
         else:
             des_file = des + f'N={N}_d={d}_wt={beta}_tau_RK.csv'
+
+        df = pd.DataFrame(data.reshape(1, np.size(data)))
+        df.to_csv(des_file, index=None, header=None, mode='a')
+        return None
+
+    def tau_separate(self, seed, delay1, delay2, criteria_dyn=1e-3, criteria_delay=5e-3):
+        """TODO: Docstring for tau_evolution.
+
+        :network_type: TODO
+        :N: TODO
+        :beta: TODO
+        :seed: TODO
+        :d: TODO
+        :returns: TODO
+
+        """
+        xs_multi = self.multi_stable(seed)
+        network_type, N, N_actual, beta, betaeffect, d, dynamics, attractor_value, arguments, A, tau_list, nu_list = self.network_type, self.N, self.N_actual, self.beta, self.betaeffect, self.d, self.dynamics, self.attractor_value, self.arguments, self.A, self.tau_list, self.nu_list
+
+        if dynamics == 'mutual':
+            dynamics_function = mutual_separate_delay
+        elif dynamics == 'harvest':
+            dynamics_function = harvest_multi_delay
+        elif dynamics == 'genereg':
+            dynamics_function = genereg_multi_delay
+        elif dynamics == 'SIS':
+            dynamics_function = SIS_multi_delay
+        elif dynamics == 'BDP':
+            dynamics_function = BDP_multi_delay
+        elif dynamics == 'PPI':
+            dynamics_function = PPI_multi_delay
+        elif dynamics == 'CW':
+            dynamics_function = CW_multi_delay
+
+        A, A_interaction, index_i, index_j, cum_index = network_generate(network_type, N, beta, betaeffect, seed, d)
+        w = np.sum(A, 0)
+        beta_eff, _ = betaspace(A, [0])
+        xeff = self.single_stable(beta_eff)
+        dt = 0.001
+        t = np.arange(0, 200, dt)
+        xs1 = ddeint_Cheng(dynamics_function, xs_multi, t, *(0.0, w, xeff, arguments))
+        _, xeff2 = betaspace(A, xs1)
+        xs2 = ddeint_Cheng(dynamics_function, xs_multi, t, *(0.0, w, xeff2, arguments))
+        initial_condition1 = xs1[-1] - 1e-3
+        initial_condition2 = xs2[-1] - 1e-3
+        index = int(10/dt)
+        dyn_dif = 1
+        delta_delay = delay2 - delay1
+        result = dict()
+        while delta_delay > criteria_delay:
+            if delay1 < 0:
+                print(seed, delay1, delay2)
+            if delay1 not in result:
+                x_i = ddeint_Cheng(dynamics_function, initial_condition1, t, *(delay1, w, xeff, arguments))
+                _, xeff2 = betaspace(A, x_i)
+                dyn_all1 = ddeint_Cheng(dynamics_function, initial_condition2, t, *(delay1, w, xeff2, arguments))[-index:]
+                diff1 = np.max(np.max(dyn_all1, 0) - np.min(dyn_all1, 0))
+                result[delay1] = diff1
+            if delay2 not in result:
+                x_i = ddeint_Cheng(dynamics_function, initial_condition1, t, *(delay2, w, xeff, arguments))
+                _, xeff2 = betaspace(A, x_i)
+                dyn_all2 = ddeint_Cheng(dynamics_function, initial_condition2, t, *(delay2, w, xeff2, arguments))[-index:]
+                dyn_all2 = x_i[-index:]
+                diff2 = np.max(np.max(dyn_all2, 0) - np.min(dyn_all2, 0))
+                result[delay2] = diff2
+
+            if result[delay1] < criteria_dyn and (result[delay2] > criteria_dyn or np.isnan(result[delay2])):
+                delay1 = np.round(delay1 + delta_delay/2, 10)
+            elif result[delay1] > criteria_dyn or np.isnan(result[delay1]):
+                delay2 = np.round(delay1, 10)
+                delay1 = np.round(delay1 - delta_delay, 10)
+            elif result[delay2] < criteria_dyn:
+                delay1 = delay2
+                delay2 = delay2 * 2
+            delta_delay = delay2 - delay1 
+        print(seed, delay1, delay2)
+        data = np.hstack((seed, delay1))
+        des = '../data/' + dynamics + '/' + network_type + '/tau_model/'
+        if not os.path.exists(des):
+            os.makedirs(des)
+        if betaeffect:
+            des_file = des + f'N={N}_d={d}_beta={beta}_tau_separate.csv'
+        else:
+            des_file = des + f'N={N}_d={d}_wt={beta}_tau_separate.csv'
 
         df = pd.DataFrame(data.reshape(1, np.size(data)))
         df.to_csv(des_file, index=None, header=None, mode='a')
@@ -1575,6 +1746,45 @@ def mutual_decouple_eff(x, t, w, beta, arguments):
     dxdt = sum_f + sum_g
     return dxdt
 
+def mutual_separate_delay(f, x0, x, t, dt, d, w, xeff, arguments):
+    """describe the derivative of x.
+    set universal parameters 
+    :x: the species abundance of plant network 
+    :t: the simulation time sequence 
+    :par: parameters  of this system
+    :returns: derivative of x 
+
+    """
+    if len(xeff) >1:
+        x_j = xeff[int(t/dt)]
+    else:
+        x_j = xeff
+    xd = np.where(t>d, f[int((t-d)/dt)], x0)
+    B, C, D, E, H, K = arguments
+    #x[np.where(x<0)] = 0  # Negative x is forbidden
+    f = B + x * (1 - xd/K) * (x/C - 1)
+    g = w * x * x_j / (D + E * x + H * x_j)
+    dxdt = f + g
+    return dxdt
+
+def mutual_shell_delay(f, x0, x, t, dt, d, w, beta, arguments):
+    """describe the derivative of x.
+    set universal parameters 
+    :x: the species abundance of plant network 
+    :t: the simulation time sequence 
+    :par: parameters  of this system
+    :returns: derivative of x 
+
+    """
+    
+    xd = np.where(t>d, f[int((t-d)/dt)], x0)
+    B, C, D, E, H, K = arguments
+    #x[np.where(x<0)] = 0  # Negative x is forbidden
+    f = B + x * (1 - xd/K) * (x/C - 1)
+    g = np.array([w * x[0] * x[1] / (D + E * x[0] + H * x[1]), x[1] * x[0] / (D + E * x[1] + H * x[0]) + (beta - 1) * x[1] * x[2] / (D + E * x[1] + H * x[2]), x[2] * x[1] / (D + E * x[2] + H * x[1]) + (beta - 1) * x[2] * x[3] / (D + E * x[2] + H * x[3]), x[3] * x[2] / (D + E * x[3] + H * x[2]) + (beta - 1) * x[3] * x[4] / (D + E * x[3] + H * x[4]), x[4] * x[3] / (D + E * x[4] + H * x[3]) + (beta - 1) * x[4] * x[5] / (D + E * x[4] + H * x[5]), beta * x[5] * x[4] / (D + E * x[5] + H * x[4]) ])
+    dxdt = f + g
+    return dxdt
+
 
 
 def eigenvalue_zero(x, A, fx, fxt, gx_i, gx_j):
@@ -2266,17 +2476,18 @@ tau_list = np.arange(0.5, 1, 0.2)
 nu_list = np.arange(1, 5, 2)
 
 
-"mutual"
-dynamics = 'mutual'
-arguments = (B, C, D, E, H, K_mutual)
-tau_list = np.arange(0.2, 0.5, 0.1)
-nu_list = np.arange(1, 10, 1)
 
 "genereg"
 dynamics = 'genereg'
 arguments = (B_gene, )
 tau_list = np.arange(1, 2, 0.5)
 nu_list = np.arange(0.1, 1, 0.2)
+
+"mutual"
+dynamics = 'mutual'
+arguments = (B, C, D, E, H, K_mutual)
+tau_list = np.arange(0.2, 0.5, 0.1)
+nu_list = np.arange(1, 10, 1)
 
 
 
@@ -2287,13 +2498,13 @@ network_list = ['SF', 'ER', 'RR']
 network_list = ['SF']
 d_RR = [4]
 d_SF = [[2.5, 99, 3], [3, 99, 3], [3.5, 99, 3], [4, 99, 3]]
-d_SF = [[2.5, 999, 3], [3, 999, 4], [3.8, 999, 5]]
 d_SF = [[2.5, 999, 3]]
+d_SF = [[2.5, 999, 3], [3, 999, 4], [3.8, 999, 5]]
 d_ER = [100, 200, 400, 800, 1600]
-d_ER = [2000, 4000, 8000]
 d_ER = [2000]
+d_ER = [2000, 4000, 8000]
 #beta_list = np.arange(60, 100, 0.01)
-beta_list = [0.1]
+beta_list = [0.01]
 betaeffect = 0
 
 for network_type in network_list:
@@ -2314,6 +2525,8 @@ for network_type in network_list:
             n = Net_Dyn(network_type, N, beta, betaeffect, seed_list, d, dynamics, attractor_value, arguments, tau_list, nu_list)
             #n.eigen_parallel('decouple_two')
             #n.eigen_parallel('eigen')
+            #n.eigen_parallel('eigen_diagonal')
+            n.eigen_parallel('tau_separate', 0.01, 0.5)
             #n.eigen_parallel('tau_evo', 0, 2)
             #n.eigen_parallel('tau_RK', 0, 2)
             #n.tau_decouple_eff()
@@ -2324,24 +2537,56 @@ for beta in beta_list:
 
 #n.tau_decouple_wk(wk_list)
 
-
-beta = 0.1
+"""
+beta = 1
 delay = 0.05
 
 #evolution_mutual_single(delay, beta, arguments)
 dynamics ='mutual'
 arguments = (B, C, D, E, H, K_mutual)
-dynamics = 'PPI'
-arguments = (B_PPI, F_PPI)
-dynamics = 'BDP'
-arguments = (B_BDP, )
 #evolution_mutual_multi("ER", 1000, 41, 8000, 0.13,  1, 0,  arguments)
 network_type = 'ER'
-d = 2000
+N = 1000
 seed = 0
+d = 800
 network_type = 'SF'
 seed = [0, 0]
 d = [2.5, 999, 3]
+delay1 = 0.18
+n = Net_Dyn(network_type, N, beta, betaeffect, seed_list, d, dynamics, attractor_value, arguments, tau_list, nu_list)
 
 index = 0
-evolution_compare_eff(dynamics, network_type, arguments, N, beta, betaeffect, d, seed, delay, index)
+xs = n.multi_stable(seed)
+dynamics_function = mutual_separate_delay
+A, A_interaction, index_i, index_j, cum_index = network_generate(network_type, N, beta, betaeffect, seed, d)
+net_arguments = (index_i, index_j, A_interaction, cum_index)
+w = np.sum(A, 0)
+beta_eff, _ = betaspace(A, [0])
+#beta_eff = np.mean(w)
+xeff = n.single_stable(beta_eff)
+initial_condition = xs -1e-3
+dt = 0.001
+t = np.arange(0, 100, dt)
+
+xs_separate = ddeint_Cheng(dynamics_function, initial_condition, t, *(0.01, w, xeff, arguments))
+#x_i = dde_RK45(dynamics_function, xs_separate, t, *(delay1, w, xeff, arguments))
+#_, xeff2 = betaspace(A, x_i)
+
+#dyn_all1 = dde_RK45(dynamics_function, xs_separate, t, *(delay1, w, xeff2, arguments))
+
+#dyn_multi = dde_RK45(mutual_multi_delay, initial_condition, t, *(delay1, arguments, net_arguments))[-index:]
+
+#evolution_compare_eff(dynamics, network_type, arguments, N, beta, betaeffect, d, seed, delay, index)
+xeff_individual = []
+for i in range(len(A)):
+    neighbor_index = np.where(A[i]>0)[0]
+    s_out = w[neighbor_index]
+    xeff_individual.append(np.mean(x_i[:, neighbor_index] * s_out, -1)/np.mean(s_out))
+xeff2 = np.vstack((xeff_individual)).transpose()
+i = 2
+initial_condition = np.ones(6) * 5.0
+for w_i in np.arange(w.min(), w.max(), 2):
+    print(w_i)
+    xs_shell = dde_RK45(mutual_shell_delay, initial_condition, t, *(0.01, w_i, beta_eff, arguments))[-1] - 1e-1
+    dyn_shell = dde_RK45(mutual_shell_delay, xs_shell, t, *(delay1, w_i, beta_eff, arguments))
+"""
