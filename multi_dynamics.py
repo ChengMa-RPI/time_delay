@@ -30,7 +30,7 @@ from jitcdde import t as jt
 
 mpl.rcParams['axes.prop_cycle'] = cycler(color=['tab:blue', 'tab:orange', 'tab:green', 'tab:red', 'tab:purple', 'tab:brown', 'tab:pink', 'grey', 'tab:olive', 'tab:cyan']) 
 
-cpu_number = 8
+cpu_number = 4
 B = 0.1
 C = 1
 K_mutual = 5
@@ -84,7 +84,7 @@ class Net_Dyn:
         self.A = A
         self.N_actual = N_actual
         self.net_arguments = net_arguments
-        initial_condition = np.ones((N_actual)) * attractor_value
+        initial_condition = np.ones((N_actual)) * attractor_value + 0.005 * np.random.random(N_actual)
         t = np.arange(0, 1000, 0.01)
         if dynamics == 'mutual':
             xs = odeint(mutual_multi, initial_condition, t, args=(arguments, net_arguments))[-1]
@@ -101,6 +101,53 @@ class Net_Dyn:
         elif dynamics == 'CW':
             xs = odeint(CW_multi, initial_condition, t, args=(arguments, net_arguments))[-1]
         return xs
+
+    def group_stable(self, seed, group_num):
+        """TODO: Docstring for stable_network.
+
+        :seed: TODO
+        :returns: TODO
+
+        """
+        network_type, N, beta, betaeffect, d, dynamics, attractor_value, arguments  = self.network_type, self.N, self.beta, self.betaeffect, self.d, self.dynamics, self.attractor_value, self.arguments  
+        A, A_interaction, index_i, index_j, cum_index = network_generate(network_type, N, beta, betaeffect, seed, d)
+        w = np.sum(A, 0)
+        N_actual = np.size(A, 0)
+        self.A = A
+        self.N_actual = N_actual
+        group_index, rearange_index = group_partition_log_degree(w, group_num, N_actual)
+        length_groups = len(group_index)
+        "construct reduction adjacency matrix"
+        A_reduction = np.zeros((length_groups, length_groups))
+        for  i in range(length_groups):
+            for j in range(length_groups):
+                m = len(group_index[i])
+                A_reduction[i, j] = np.sum(A[group_index[i]][:, group_index[j]])/m
+        A_index = np.where(A_reduction>0)
+        A_interaction = A_reduction[A_index]
+        index_i = A_index[0] 
+        index_j = A_index[1] 
+        degree_reduction = np.sum(A_reduction>0, 1)
+        cum_index = np.hstack((0, np.cumsum(degree_reduction)))
+        net_arguments = (index_i, index_j, A_interaction, cum_index)
+        initial_condition = np.ones(length_groups) * attractor_value
+        t = np.arange(0, 1000, 0.01)
+
+        if dynamics == 'mutual':
+            xs = odeint(mutual_multi, initial_condition, t, args=(arguments, net_arguments))[-1]
+        elif dynamics == 'harvest':
+            xs = odeint(harvest_multi, initial_condition, t, args=(arguments, net_arguments))[-1]
+        elif dynamics == 'genereg':
+            xs = odeint(genereg_multi, initial_condition, t, args=(arguments, net_arguments))[-1]
+        elif dynamics == 'SIS':
+            xs = odeint(SIS_multi, initial_condition, t, args=(arguments, net_arguments))[-1]
+        elif dynamics == 'BDP':
+            xs = odeint(BDP_multi, initial_condition, t, args=(arguments, net_arguments))[-1]
+        elif dynamics == 'PPI':
+            xs = odeint(PPI_multi, initial_condition, t, args=(arguments, net_arguments))[-1]
+        elif dynamics == 'CW':
+            xs = odeint(CW_multi, initial_condition, t, args=(arguments, net_arguments))[-1]
+        return xs, group_index
 
     def single_stable(self, beta):
         """TODO: Docstring for stable_network.
@@ -149,89 +196,6 @@ class Net_Dyn:
             df.to_csv(des_file, index=None, header=None, mode='a')
 
         return None
-
-    def eigen_diagonal(self, seed):
-        """TODO: Docstring for eigen_fg.
-
-        :dynamics: TODO
-        :xs: TODO
-        :arguments: TODO
-        :returns: TODO
-
-        """
-
-        xs = self.multi_stable(seed)
-        network_type, N, N_actual, beta, betaeffect, d, dynamics, attractor_value, arguments, A, tau_list, nu_list = self.network_type, self.N, self.N_actual, self.beta, self.betaeffect, self.d, self.dynamics, self.attractor_value, self.arguments, self.A, self.tau_list, self.nu_list
-        
-        if dynamics == 'mutual':
-            B, C, D, E, H, K = arguments
-            fx = (1-xs/K) * (2*xs/C-1)
-            fxt = -xs/K*(xs/C-1)
-            xs_T = xs.reshape(len(xs), 1)
-            denominator = D + E * xs + H * xs_T
-            "A should be transposed to A_ji"
-            gx_i = np.sum(A * (xs_T/denominator - E * xs * xs_T/denominator ** 2 ), 0)
-        elif dynamics == 'harvest':
-            r, K, c = arguments
-            fx = r * (1-xs/K) - 2 * c * xs / (xs**2+1)**2
-            fxt = -r * xs  / K
-            gx_i = -np.sum(A, 0)
-        elif dynamics == 'genereg':
-            B, = arguments
-            fx = 0
-            fxt = -B * np.ones(N_actual)
-            gx_i = 0
-            gx_j = A * (2 * xs / (xs**2+1)**2) 
-        elif dynamics == 'SIS':
-            B, = arguments
-            fx = 0
-            fxt = -B  * np.ones(N_actual)
-            gx_i = - np.sum(A * xs, 1) 
-        elif dynamics == 'BDP':
-            B, = arguments
-            fx = 0
-            fxt = -B * 2 * xs
-            gx_i = 0
-            gx_j = A 
-        elif dynamics == 'PPI':
-            B, F = arguments
-            fx = 0
-            fxt = -B  * np.ones(N_actual)
-            gx_i = - np.sum(A * xs, 1)
-        elif dynamics == 'CW':
-            a, b = arguments
-            fx = 0
-            fxt = -1 * np.ones(N_actual) 
-            gx_i = 0
-
-
-        "compute eigenvalues"
-        P = - (fx + gx_i)
-        Q = - fxt
-        valid_index = np.where(np.abs(P/Q)<=1)[0]
-        if len(valid_index) == 0:
-            tau_critical = -1
-        else:
-            P_valid = P[valid_index]
-            Q_valid = Q[valid_index]
-            tau = np.arccos(-P_valid/Q_valid) / Q_valid /np.sin(np.arccos(-P_valid/Q_valid))
-            #nu = np.arccos(-P_valid/Q_valid)/tau
-            tau_critical = np.min(tau)
-
-        "save data"
-        data = np.hstack((seed, tau_critical))
-        des = '../data/' + dynamics + '/' + network_type + '/tau_multi/'
-        if not os.path.exists(des):
-            os.makedirs(des)
-        if betaeffect:
-            des_file = des + f'N={N}_d=' + str(d) + '_beta=' + str(beta) + '_diagonal.csv'
-        else:
-            des_file = des + f'N={N}_d=' + str(d) + '_wt=' + str(beta) + '_diagonal.csv'
-
-        df = pd.DataFrame(data.reshape(1, np.size(data)))
-        df.to_csv(des_file, index=None, header=None, mode='a')
-        print(seed, tau_critical)
-        return tau_critical
 
     def eigen_solution(self, seed):
         """TODO: Docstring for eigen_fg.
@@ -398,6 +362,7 @@ class Net_Dyn:
         PQ_index = np.where(np.abs(P/Q)<=1)[0]
         P_index = P[PQ_index]
         tau_list = np.arccos(-P_index/Q) /Q/np.sin(np.arccos(-P_index/Q))
+        print(tau_list)
         tau_critical = np.min(tau_list)
         "save data"
         data = np.hstack((seed, tau_critical))
@@ -414,7 +379,82 @@ class Net_Dyn:
         print(seed, tau_critical)
         return tau_critical
 
-    def eigen_parallel(self, function, delay1=0, delay2=10):
+    def eigen_blocks(self, seed, group_num):
+        """TODO: Docstring for eigen_fg.
+
+        :dynamics: TODO
+        :xs: TODO
+        :arguments: TODO
+        :returns: TODO
+
+        """
+        xs_reduction, group_index = self.group_stable(seed, group_num)
+        network_type, N, N_actual, beta, betaeffect, d, dynamics, attractor_value, arguments, A, tau_list, nu_list = self.network_type, self.N, self.N_actual, self.beta, self.betaeffect, self.d, self.dynamics, self.attractor_value, self.arguments, self.A, self.tau_list, self.nu_list
+
+        length_groups = len(group_index)
+        xs_groups = np.ones(N_actual)
+        for i in range(length_groups):
+            xs_groups[group_index[i]] = xs_reduction[i]
+        xs_groups_T = xs_groups.reshape(len(xs_groups), 1)
+
+        if dynamics == 'mutual':
+            B, C, D, E, H, K = arguments
+            fx_subgroup = (1-xs_reduction/K) * (2*xs_reduction/C-1)
+            fxt_subgroup = -xs_reduction/K*(xs_reduction/C-1)
+
+            denominator = D + E * xs_groups + H * xs_groups_T
+            gx_i_groups = np.sum(A* (xs_groups_T/denominator - E * xs_groups * xs_groups_T/denominator ** 2 ), 0)
+            gx_j_groups = A* (xs_groups/denominator - H * xs_groups * xs_groups_T/denominator ** 2 )
+
+        elif dynamics == 'BDP':
+            B, = arguments
+            fx_subgroup = np.zeros(length_groups)
+            fxt_subgroup = -B * 2 * xs_reduction
+            gx_i_groups = np.zeros(N_actual)
+            gx_j_groups = A
+        elif dynamics == 'PPI':
+            B, F = arguments
+            fx_subgroup = np.zeros(length_groups)
+            fxt_subgroup = -B  * np.ones(length_groups)
+            gx_i_groups = -np.sum(A * xs_groups, 1)
+            gx_j_groups =  - A * xs_groups.reshape(len(xs_groups), 1)
+
+        "compute eigenvalues"
+        tau_individual = []
+        for i in range(length_groups):
+            gx_i_subgroup = gx_i_groups[group_index[i]]
+            gx_j_subgroup = gx_j_groups[group_index[i]][:, group_index[i]]
+            L = gx_j_subgroup
+            np.fill_diagonal(L, gx_i_subgroup)
+            eigenvalue, eigenvector = np.linalg.eig(L)
+            eigenvalue = np.real(eigenvalue)
+            P = - (fx_subgroup[i] +eigenvalue)
+            Q = - fxt_subgroup[i]
+            PQ_index = np.where(np.abs(P/Q)<=1)[0]
+            if len(PQ_index):
+                P_index = P[PQ_index]
+                Q_index = Q
+                tau_list = np.arccos(-P_index/Q_index) /Q_index/np.sin(np.arccos(-P_index/Q_index))
+                tau_individual.append(np.min(tau_list))
+
+        tau_critical = np.min(tau_individual)
+
+        "save data"
+        data = np.hstack((seed, tau_critical))
+        des = '../data/' + dynamics + '/' + network_type + '/eigen_blocks/'
+        if not os.path.exists(des):
+            os.makedirs(des)
+        if betaeffect:
+            des_file = des + f'N={N}_d=' + str(d) + '_beta=' + str(beta) + f'_group_num={group_num}.csv'
+        else:
+            des_file = des + f'N={N}_d=' + str(d) + '_wt=' + str(beta) + f'_group_num={group_num}.csv'
+
+        df = pd.DataFrame(data.reshape(1, np.size(data)))
+        df.to_csv(des_file, index=None, header=None, mode='a')
+        print(seed, tau_critical)
+        return tau_critical
+
+    def eigen_parallel(self, function, group_num = 1, delay1=0, delay2=10):
         """TODO: Docstring for tau_critical.
 
         :arg1: TODO
@@ -426,6 +466,8 @@ class Net_Dyn:
             p.starmap_async(self.eigen_solution, [(seed, ) for seed in self.seed_list]).get()
         elif function == 'eigen_decouple':
             p.starmap_async(self.eigen_decouple, [(seed, ) for seed in self.seed_list]).get()
+        elif function == 'eigen_blocks':
+            p.starmap_async(self.eigen_blocks, [(seed, group_num) for seed in self.seed_list]).get()
         elif function == 'decouple_two':
             p.starmap_async(self.tau_decouple_two, [(seed, ) for seed in self.seed_list]).get()
         elif function == 'tau_evo':
@@ -855,7 +897,7 @@ class Net_Dyn:
         A, A_interaction, index_i, index_j, cum_index = network_generate(network_type, N, beta, betaeffect, seed, d)
         net_arguments = (index_i, index_j, A_interaction, cum_index)
 
-        initial_condition = xs - 1e-3
+        initial_condition = xs - np.random.random(N_actual) * 0.005
         dt = 0.001
         t = np.arange(0, 200, dt)
         index = int(10/dt)
@@ -1051,7 +1093,40 @@ class Net_Dyn:
         df.to_csv(des_file, index=None, header=None, mode='a')
         return None
 
+def group_partition_log_degree(w, group_num, N_actual):
+    """TODO: Docstring for group_partition_log_degree.
+    :returns: TODO
 
+    """
+    w_unique = np.unique(w)
+    if group_num > np.size(w_unique):
+        if group_num == N_actual:
+            group_index = []
+            for i in range(N_actual):
+                group_index.append([i])
+        else:
+            print('method not available')
+            return None
+    else:
+        length_groups = 0
+        bins = group_num
+        while group_num > length_groups:
+            group_index = []
+            w_separate = np.logspace(np.log10(w.min()), np.log10(w.max()), bins)
+            w_separate[-1] = w_separate[-1] * 2
+            w_separate[0] = w_separate[0] *0.5
+            group_index = []
+            for w_i, w_j in zip(w_separate[:-1], w_separate[1:]):
+                index = np.where((w < w_j)  & (w >= w_i ))[0]
+                if len(index):
+                    group_index.append(index)
+            length_groups = len(group_index)
+            bins += 1
+    rearange_index = np.hstack((group_index))
+    if len(rearange_index) != N_actual:
+        print(w_separate, len(rearange_index))
+        print('groups wrong')
+    return group_index, rearange_index
 
 
 def harvest_single(x, t, arguments):
@@ -2634,13 +2709,6 @@ tau_list = np.arange(1., 1.5, 0.1)
 nu_list = np.arange(0.1, 1.5, 0.5)
 
 
-"BDP"
-dynamics = 'BDP'
-arguments = (B_BDP, )
-tau_list = np.arange(0.5, 1, 0.2)
-nu_list = np.arange(1, 5, 2)
-
-
 
 "genereg"
 dynamics = 'genereg'
@@ -2649,11 +2717,6 @@ tau_list = np.arange(1, 2, 0.5)
 nu_list = np.arange(0.1, 1, 0.2)
 
 
-"PPI"
-dynamics = 'PPI'
-arguments = (B_PPI, F_PPI)
-tau_list = np.arange(0.1, 2, 0.5)
-nu_list = np.arange(0, 2, 0.5)
 
 "mutual"
 dynamics = 'mutual'
@@ -2661,6 +2724,17 @@ arguments = (B, C, D, E, H, K_mutual)
 tau_list = np.arange(0.2, 0.5, 0.1)
 nu_list = np.arange(1, 10, 1)
 
+"PPI"
+dynamics = 'PPI'
+arguments = (B_PPI, F_PPI)
+tau_list = np.arange(0.1, 2, 0.5)
+nu_list = np.arange(0, 2, 0.5)
+
+"BDP"
+dynamics = 'BDP'
+arguments = (B_BDP, )
+tau_list = np.arange(0.5, 1, 0.2)
+nu_list = np.arange(1, 5, 2)
 
 
 wk_list = np.arange(0.1, 20, 0.1)
@@ -2669,14 +2743,16 @@ network_list = ['SF', 'ER', 'RR']
 network_list = ['SF']
 d_RR = [4]
 d_SF = [[2.5, 99, 3], [3, 99, 3], [3.5, 99, 3], [4, 99, 3]]
-d_SF = [[2.5, 999, 3]]
 d_SF = [[2.5, 999, 3], [3, 999, 4], [3.8, 999, 5]]
+d_SF = [[3.8, 999, 5]]
 d_ER = [100, 200, 400, 800, 1600]
-d_ER = [2000]
 d_ER = [2000, 4000, 8000]
+d_ER = [4000]
 #beta_list = np.arange(60, 100, 0.01)
 beta_list = [0.01, 0.1, 1]
+beta_list = [0.01]
 betaeffect = 0
+blocks_list = [5]
 
 for network_type in network_list:
     if network_type == 'SF':
@@ -2696,70 +2772,64 @@ for network_type in network_list:
             n = Net_Dyn(network_type, N, beta, betaeffect, seed_list, d, dynamics, attractor_value, arguments, tau_list, nu_list)
             #n.eigen_parallel('decouple_two')
             #n.eigen_parallel('eigen')
-            n.eigen_parallel('eigen_decouple')
+            #n.eigen_parallel('eigen_decouple')
             #n.eigen_parallel('eigen_diagonal')
             #n.eigen_parallel('tau_separate', 0.01, 0.5)
             #n.eigen_parallel('tau_evo', 0, 2)
             #n.eigen_parallel('tau_RK', 0, 2)
             #n.tau_decouple_eff()
+            for group_num in blocks_list:
+                n.eigen_parallel('eigen_blocks', group_num)
 
-beta_list = [8]
+beta_list = [2]
 for beta in beta_list:
-    n = Net_Dyn(network_type, N, beta, betaeffect, seed_list, d, dynamics, attractor_value, arguments, tau_list, nu_list)
+    #n = Net_Dyn(network_type, N, beta, betaeffect, seed_list, d, dynamics, attractor_value, arguments, tau_list, nu_list)
     #tau = n.tau_1D()
+    pass
 
 #n.tau_decouple_wk(wk_list)
 
-beta = 0.1
 
-dynamics ='mutual'
-arguments = (B, C, D, E, H, K_mutual)
-
-
-
-network_type = 'RR'
-seed = 0
-d = 4
-network_type = 'ER'
-N = 1000
-seed = 0
-d = 4000
-network_type = 'SF'
-seed = [0, 0]
-d = [2.5, 999, 3]
-
-
-
-delay = 0.25
+"""
+delay = 2.1
 w_index = 4
 #compare_multi_separate(network_type, N, beta, betaeffect, seed, d, dynamics, delay, attractor_value, arguments, w_index)
-"""
 n = Net_Dyn(network_type, N, beta, betaeffect, seed_list, d, dynamics, attractor_value, arguments, tau_list, nu_list)
 
 index = 0
 xs = n.multi_stable(seed)
-dynamics_function = mutual_separate_delay
+dynamics_function = PPI_multi_delay
 A, A_interaction, index_i, index_j, cum_index = network_generate(network_type, N, beta, betaeffect, seed, d)
 net_arguments = (index_i, index_j, A_interaction, cum_index)
 w = np.sum(A, 0)
+N_actual = len(w)
 beta_eff, _ = betaspace(A, [0])
 #beta_eff = np.mean(w)
 xeff = n.single_stable(beta_eff)
-initial_condition = xs -1e-3
-dt = 0.01
-t = np.arange(0, 100, dt)
+initial_condition = xs -np.random.random(N_actual) * 0.005
+initial_condition = xs - 0.005
+dt = 0.001
+t = np.arange(0, 200, dt)
 
-xs_separate = ddeint_Cheng(dynamics_function, initial_condition, t, *(0.01, w, xeff, arguments))
+#xs_separate = ddeint_Cheng(dynamics_function, initial_condition, t, *(0.01, w, xeff, arguments))
 #x_i = dde_RK45(dynamics_function, xs_separate, t, *(delay1, w, xeff, arguments))
 #_, xeff2 = betaspace(A, x_i)
 
 #dyn_all1 = dde_RK45(dynamics_function, xs_separate, t, *(delay1, w, xeff2, arguments))
 
-#dyn_multi = dde_RK45(mutual_multi_delay, initial_condition, t, *(delay1, arguments, net_arguments))[-index:]
+dyn_multi = ddeint_Cheng(dynamics_function, initial_condition, t, *(delay, arguments, net_arguments))[-index:]
+
+plt.plot(t, dyn_multi, linewidth=lw, alpha=alpha)
+plt.subplots_adjust(left=0.18, right=0.98, wspace=0.25, hspace=0.25, bottom=0.18, top=0.98)
+plt.xticks(fontsize=ticksize)
+plt.yticks(fontsize=ticksize)
+plt.xlabel('$t$', fontsize= fs)
+plt.ylabel('$x$', fontsize =fs)
+plt.locator_params(axis='x', nbins=5)
+plt.legend(fontsize=legendsize, frameon=False)
+plt.show()
 
 #evolution_compare_eff(dynamics, network_type, arguments, N, beta, betaeffect, d, seed, delay, index)
-"""
-"""
 
 xeff_individual = []
 for i in range(len(A)):
@@ -2770,7 +2840,6 @@ xeff2 = np.vstack((xeff_individual)).transpose()
 i = 2
 initial_condition = np.ones(6) * 5.0
 for w_i in np.arange(w.min(), w.max(), 2):
-    print(w_i)
     xs_shell = dde_RK45(mutual_shell_delay, initial_condition, t, *(0.01, w_i, beta_eff, arguments))[-1] - 1e-1
     dyn_shell = dde_RK45(mutual_shell_delay, xs_shell, t, *(delay1, w_i, beta_eff, arguments))
 
@@ -2793,23 +2862,77 @@ if dynamics == 'mutual':
 
     gx_i = np.sum(A * (xs_T/denominator - E * xs * xs_T/denominator ** 2 ), 0)
     gx_j = A * (xs/denominator - H * xs * xs_T/denominator ** 2 )
-gx_ij = np.mean(gx_j[gx_j>0])/np.mean(gx_i)
-L =  gx_j
-np.fill_diagonal(L, np.mean(gx_i))
-#L = np.zeros((N, N))
-#np.fill_diagonal(L, gx_i)
 
-eigenvalue, eigenvector = np.linalg.eig(L)
-eigenvalue = np.real(eigenvalue)
-#eigenvalues = -(fx + eigenvalue)
-#eigenvalues_difference = eigenvalues - eigenvalues.reshape(N, 1)
-#gx_j ** 2/ eigenvalues_difference
-P = - (fx +eigenvalue)
-Q = - fxt
-PQ_index = np.where(np.abs(P/Q)<=1)[0]
-P_index = P[PQ_index]
-Q_index = Q[PQ_index]
-tau_list = np.arccos(-P_index/Q_index) /Q_index/np.sin(np.arccos(-P_index/Q_index))
-tau_critical = np.min(tau_list)
+w = np.sum(A, 0)
+interval_diff= 1/100
+group_index = []
+for i in range(10000):
+    index = np.where((w <= w.max() * np.exp(-interval_diff * i) ) & (w > w.max() * np.exp(-interval_diff * (i+1)) ))[0]
+    if len(index):
+        group_index.append(index)
+#group_index = [[i] for i in range(N_actual)]
+
+rearange_index = np.hstack((group_index))
+fx_rearange= fx[rearange_index]
+fxt_rearange= fxt[rearange_index]
+gx_i_rearange = gx_i[rearange_index]
+gx_j_rearange = gx_j[:, rearange_index][rearange_index]
+tau_c = []
+length_groups = len(group_index)
+A_reduction = np.zeros((length_groups, length_groups))
+for  i in range(length_groups):
+    for j in range(length_groups):
+        m = len(group_index[i])
+        A_reduction[i, j] = np.sum(A[group_index[i]][:, group_index[j]])/m
+
+A_index = np.where(A_reduction>0)
+A_interaction = A_reduction[A_index]
+index_i = A_index[0] 
+index_j = A_index[1] 
+degree_reduction = np.sum(A_reduction>0, 1)
+cum_index = np.hstack((0, np.cumsum(degree_reduction)))
+net_arguments = (index_i, index_j, A_interaction, cum_index)
+
+initial_condition = np.ones(length_groups) * attractor_value
+t = np.arange(0, 1000, 0.01)
+xs_reduction = odeint(mutual_multi, initial_condition, t, args=(arguments, net_arguments))[-1]
+
+fx_subgroup = (1-xs_reduction/K) * (2*xs_reduction/C-1)
+fxt_subgroup = -xs_reduction/K*(xs_reduction/C-1)
+
+#A_rearange = A[rearange_index][:, rearange_index]
+xs_groups = np.ones(N_actual)
+for i in range(length_groups):
+    xs_groups[group_index[i]] = xs_reduction[i]
+#xs_rearange = np.hstack(([[xs_reduction[i]] * len(group_index[i]) for i in range(length_groups)]))
+xs_groups_T = xs.reshape(len(xs_groups), 1)
+denominator = D + E * xs_groups + H * xs_groups_T
+gx_i_groups = np.sum(A* (xs_groups_T/denominator - E * xs_groups * xs_groups_T/denominator ** 2 ), 0)
+gx_j_groups = A* (xs_groups/denominator - H * xs_groups * xs_groups_T/denominator ** 2 )
+
+for i in range(length_groups):
+    gx_i_subgroup = gx_i_groups[group_index[i]]
+    gx_j_subgroup = gx_j_groups[group_index[i]][:, group_index[i]]
+    L = gx_j_subgroup
+    np.fill_diagonal(L, gx_i_subgroup)
+    eigenvalue, eigenvector = np.linalg.eig(L)
+    P = - (fx_subgroup[i] +eigenvalue)
+    Q = - fxt_subgroup[i]
+    PQ_index = np.where(np.abs(P/Q)<=1)[0]
+    if len(PQ_index):
+        P_index = P[PQ_index]
+        Q_index = Q
+        #Q_index = Q[PQ_index]
+        tau_list = np.arccos(-P_index/Q_index) /Q_index/np.sin(np.arccos(-P_index/Q_index))
+        tau_critical = np.min(tau_list)
+        tau_c.append(tau_critical)
+        print(i, tau_critical)
+    else:
+        print(i)
+
 """
+
+
+
+
 
