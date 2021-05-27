@@ -115,7 +115,10 @@ class Net_Dyn:
         N_actual = np.size(A, 0)
         self.A = A
         self.N_actual = N_actual
-        group_index, rearange_index = group_partition_log_degree(w, group_num, N_actual)
+        if network_type == 'SF':
+            group_index, rearange_index = group_partition_degree(w, group_num, N_actual, 'log')
+        elif network_type == 'ER':
+            group_index, rearange_index = group_partition_degree(w, group_num, N_actual, 'linear')
         length_groups = len(group_index)
         "construct reduction adjacency matrix"
         A_reduction = np.zeros((length_groups, length_groups))
@@ -1093,7 +1096,7 @@ class Net_Dyn:
         df.to_csv(des_file, index=None, header=None, mode='a')
         return None
 
-def group_partition_log_degree(w, group_num, N_actual):
+def group_partition_degree(w, group_num, N_actual, space):
     """TODO: Docstring for group_partition_log_degree.
     :returns: TODO
 
@@ -1112,7 +1115,10 @@ def group_partition_log_degree(w, group_num, N_actual):
         bins = group_num
         while group_num > length_groups:
             group_index = []
-            w_separate = np.logspace(np.log10(w.min()), np.log10(w.max()), bins)
+            if space == 'log':
+                w_separate = np.logspace(np.log10(w.min()), np.log10(w.max()), bins)
+            elif space == 'linear':
+                w_separate = np.linspace(w.min(), w.max(), bins)
             w_separate[-1] = w_separate[-1] * 2
             w_separate[0] = w_separate[0] *0.5
             group_index = []
@@ -1127,6 +1133,7 @@ def group_partition_log_degree(w, group_num, N_actual):
         print(w_separate, len(rearange_index))
         print('groups wrong')
     return group_index, rearange_index
+
 
 
 def harvest_single(x, t, arguments):
@@ -2716,14 +2723,6 @@ arguments = (B_gene, )
 tau_list = np.arange(1, 2, 0.5)
 nu_list = np.arange(0.1, 1, 0.2)
 
-
-
-"mutual"
-dynamics = 'mutual'
-arguments = (B, C, D, E, H, K_mutual)
-tau_list = np.arange(0.2, 0.5, 0.1)
-nu_list = np.arange(1, 10, 1)
-
 "PPI"
 dynamics = 'PPI'
 arguments = (B_PPI, F_PPI)
@@ -2736,23 +2735,30 @@ arguments = (B_BDP, )
 tau_list = np.arange(0.5, 1, 0.2)
 nu_list = np.arange(1, 5, 2)
 
+"mutual"
+dynamics = 'mutual'
+arguments = (B, C, D, E, H, K_mutual)
+tau_list = np.arange(0.2, 0.5, 0.1)
+nu_list = np.arange(1, 10, 1)
+
+
 
 wk_list = np.arange(0.1, 20, 0.1)
 #n.tau_decouple_two()
 network_list = ['SF', 'ER', 'RR']
-network_list = ['SF']
+network_list = ['ER']
 d_RR = [4]
 d_SF = [[2.5, 99, 3], [3, 99, 3], [3.5, 99, 3], [4, 99, 3]]
 d_SF = [[2.5, 999, 3], [3, 999, 4], [3.8, 999, 5]]
 d_SF = [[3.8, 999, 5]]
 d_ER = [100, 200, 400, 800, 1600]
 d_ER = [2000, 4000, 8000]
-d_ER = [4000]
+d_ER = [2000]
 #beta_list = np.arange(60, 100, 0.01)
 beta_list = [0.01, 0.1, 1]
-beta_list = [0.01]
+beta_list = [1]
 betaeffect = 0
-blocks_list = [5]
+blocks_list = np.arange(2, 5, 1)
 
 for network_type in network_list:
     if network_type == 'SF':
@@ -2780,6 +2786,7 @@ for network_type in network_list:
             #n.tau_decouple_eff()
             for group_num in blocks_list:
                 n.eigen_parallel('eigen_blocks', group_num)
+                pass
 
 beta_list = [2]
 for beta in beta_list:
