@@ -45,7 +45,7 @@ B_PPI = 1
 F_PPI = 0.1
 f = 1
 h =2
-a = 3
+a = 5
 b = 1
 
 fs = 22
@@ -271,7 +271,64 @@ def group_partition_degree_nn(A, group_num, N_actual, space, r):
         print('groups wrong')
     return group_index, rearange_index
 
-def group_degree_weighted(network_type, N, beta, betaeffect, seed, d, group_num, dynamics, arguments, attractor_value, r):
+def group_partition_degree_equal_node(A, group_num, N_actual):
+    """TODO: Docstring for group_partition_log_degree.
+    :returns: TODO
+
+    """
+    w = np.sum(A, 0)
+    N_each = round(N_actual / group_num)
+
+    w_nn = np.array([np.mean(w[np.where(A[i] == 1)[0]]) for i in range(N_actual)])
+    w_nn_norm = w_nn / max(w_nn + 1)
+    w_all = w + w_nn_norm
+    sort_index = np.argsort(w_all)
+    group_index = []
+    for i in range(group_num):
+        if i < group_num - 1:
+            group_index.append(sort_index[i*N_each : (i+1)*N_each])
+        else:
+            group_index.append(sort_index[i*N_each :])
+
+    rearange_index = np.hstack((group_index))
+    if len(rearange_index) != N_actual:
+        print(w_separate, len(rearange_index))
+        print('groups wrong')
+    return group_index, rearange_index
+
+def group_movement(A, group_index, rearange_index, ratio_threshold):
+    """TODO: Docstring for group_movement.
+
+    :A: TODO
+    :group_index: TODO
+    :returns: TODO
+
+    """
+    w = np.sum(A, 0)
+    N_actual = np.size(A, 0)
+    neighbors_degree = [w[np.where(A[i] == 1)[0]] for i in range(N_actual)]
+    group_num = len(group_index)
+    w_min = [np.min(w[group_index[i]]) for i in range(group_num)]
+    w_max = [np.max(w[group_index[i]]) for i in range(group_num)]
+    w_mean = [np.mean(w[group_index[i]]) for i in range(group_num)]
+    w_interval = np.hstack((w_min, w_max[-1]))
+
+    for i, group_i in enumerate(group_index):
+        for j in group_i:
+            number_each_group = np.histogram(neighbors_degree[j], bins=w_interval)[0]
+            number_max = max(number_each_group) / sum(number_each_group)
+            number_max_group = np.argmax(number_each_group)
+            #if number_max >= ratio_threshold and number_max_group != i and (abs(w[j] - w_min[number_max_group]) <= 1 or abs(w[j] - w_max[number_max_group]) <= 1) and ((np.mean(neighbors_degree[j]) > w_mean[number_max_group] and i<number_max_group) or (np.mean(neighbors_degree[j]) < w_mean[number_max_group] and i>number_max_group)):
+            if number_max >= ratio_threshold and number_max_group != i and (abs(w[j] - w_min[number_max_group]) <= 1 or abs(w[j] - w_max[number_max_group]) <= 1):
+                print(w_min, neighbors_degree[j], number_max_group, i)
+                "j should move to the number_max_group" 
+                group_index[number_max_group] = np.hstack((group_index[number_max_group], j))
+                group_index[i] = np.delete(group_index[i], np.where(group_index[i] == j)[0])
+
+    rearange_index = np.hstack((group_index))
+    return group_index, rearange_index
+
+def group_degree_weighted(network_type, N, beta, betaeffect, seed, d, group_num, dynamics, arguments, attractor_value, ratio_threshold, space):
     """TODO: Docstring for group_stable.
 
     :arg1: TODO
@@ -281,14 +338,13 @@ def group_degree_weighted(network_type, N, beta, betaeffect, seed, d, group_num,
     A, _, _, _, _ = network_generate(network_type, N, beta, betaeffect, seed, d)
     w = np.sum(A, 0)
     N_actual = np.size(A, 0)
-    if network_type == 'SF':
-        group_index, rearange_index = group_partition_degree(w, group_num, N_actual, 'log')
-    elif network_type == 'ER' :
+    if space == 'equal_node':
+        group_index, rearange_index = group_partition_degree_equal_node(A, group_num, N_actual)
+    elif space == 'linear' or space == 'log' or space == 'bimode':
+        group_index, rearange_index = group_partition_degree(w, group_num, N_actual, space)
+    elif space == 'move':
         group_index, rearange_index = group_partition_degree(w, group_num, N_actual, 'linear')
-    elif network_type == 'star':
-        group_index, rearange_index = group_partition_degree(w, group_num, N_actual, 'bimode')
-    elif network_type == 'RGG':
-        group_index, rearange_index = group_partition_degree_nn(A, group_num, N_actual, 'linear', r)
+        group_index, rearange_index = group_movement(A, group_index, rearange_index, ratio_threshold)
 
     length_groups = len(group_index)
     each_group_length = [len(i) for i in group_index]
@@ -325,7 +381,7 @@ def group_degree_weighted(network_type, N, beta, betaeffect, seed, d, group_num,
 
     return xs_group, group_index, w_group
 
-def group_decouple_stable(network_type, N, beta, betaeffect, seed, d, group_num, dynamics, arguments, attractor_value, r):
+def group_decouple_stable(network_type, N, beta, betaeffect, seed, d, group_num, dynamics, arguments, attractor_value, ratio_threshold, space):
     """TODO: Docstring for group_decouple_stable.
 
     :arg1: TODO
@@ -333,8 +389,9 @@ def group_decouple_stable(network_type, N, beta, betaeffect, seed, d, group_num,
 
     """
 
-    xs_group, group_index, w_group = group_degree_weighted(network_type, N, beta, betaeffect, seed, d, group_num, dynamics, arguments, attractor_value, r)
+    xs_group, group_index, w_group = group_degree_weighted(network_type, N, beta, betaeffect, seed, d, group_num, dynamics, arguments, attractor_value, r, space)
     A, A_interaction, index_i, index_j, cum_index = network_generate(network_type, N, beta, betaeffect, seed, d)
+    w = np.sum(A, 0)
     N_actual = np.size(A, 0)
     initial_condition = attractor_value * np.ones(N_actual)
     t = np.arange(0, 1000, 0.01)
@@ -359,20 +416,32 @@ def group_decouple_stable(network_type, N, beta, betaeffect, seed, d, group_num,
     "save data"
     rearange_index = np.hstack((group_index))
     group_number = np.hstack(([i * np.ones(len(j)) for i, j in enumerate(group_index)]))
-    data = np.vstack((group_number, rearange_index, xs_multi, xs_group_decouple))
-    des = '../data/' + dynamics + '/' + network_type + '/xs_group_decouple_knn/'
+    xs_groups = np.hstack(([xs_group[i] * np.ones(len(j)) for i, j in enumerate(group_index)]))
+    data = np.vstack((group_number, rearange_index, xs_multi[rearange_index], xs_group_decouple[rearange_index], xs_groups, w[rearange_index]))
+    if space == 'move':
+        des = '../data/' + dynamics + '/' + network_type + '/xs_group_decouple_move/'
+    else:
+        des = '../data/' + dynamics + '/' + network_type + '/xs_group_decouple_' + space + '/'
+
     if not os.path.exists(des):
         os.makedirs(des)
-    if betaeffect:
-        des_file = des + f'N={N}_d=' + str(d) + '_beta=' + str(beta) + f'_r={r}_group_num={group_num}_seed={seed}.csv'
+    if ratio_threshold == 'None':
+        if betaeffect:
+            des_file = des + f'N={N}_d=' + str(d) + '_beta=' + str(beta) + f'_group_num={group_num}_seed={seed}.csv'
+        else:
+            des_file = des + f'N={N}_d=' + str(d) + '_wt=' + str(beta) + f'_group_num={group_num}_seed={seed}.csv'
+
     else:
-        des_file = des + f'N={N}_d=' + str(d) + '_wt=' + str(beta) + f'_r={r}_group_num={group_num}_seed={seed}.csv'
+        if betaeffect:
+            des_file = des + f'N={N}_d=' + str(d) + '_beta=' + str(beta) + f'_r={ratio_threshold}_group_num={group_num}_seed={seed}.csv'
+        else:
+            des_file = des + f'N={N}_d=' + str(d) + '_wt=' + str(beta) + f'_r={ratio_threshold}_group_num={group_num}_seed={seed}.csv'
 
     df = pd.DataFrame(data.transpose())
     df.to_csv(des_file, index=None, header=None, mode='a')
     return xs_group_decouple
 
-def parallel_group_decouple_stable(network_type, N, beta, betaeffect, seed_list, d, group_num, dynamics, arguments, attractor_value, r):
+def parallel_group_decouple_stable(network_type, N, beta, betaeffect, seed_list, d, group_num, dynamics, arguments, attractor_value, r, space):
     """TODO: Docstring for parallel_group_decouple_stable.
 
     :arg1: TODO
@@ -380,10 +449,11 @@ def parallel_group_decouple_stable(network_type, N, beta, betaeffect, seed_list,
 
     """
     p = mp.Pool(cpu_number)
-    p.starmap_async(group_decouple_stable, [(network_type, N, beta, betaeffect, seed, d, group_num, dynamics, arguments, attractor_value, r) for seed in seed_list]).get()
+    p.starmap_async(group_decouple_stable, [(network_type, N, beta, betaeffect, seed, d, group_num, dynamics, arguments, attractor_value, r, space) for seed in seed_list]).get()
     p.close()
     p.join()
     return None
+
 
     
 
@@ -396,34 +466,23 @@ beta = 1
 betaeffect = 0
 attractor_value = 10
 
-dynamics = 'CW'
-arguments = (a, b)
+
+
 
 dynamics = 'BDP'
 arguments = (B_BDP, )
 
-
 dynamics = 'PPI'
 arguments = (B_PPI, F_PPI)
+
+
+#attractor_value = 0.01
+dynamics = 'CW'
+arguments = (a, b)
 
 dynamics = 'mutual'
 arguments = (B, C, D, E, H, K_mutual)
 
-
-
-
-
-
-network_type = 'SF'
-d_list = [[2.1, 999, 2], [2.5, 999, 3], [3, 999, 4], [3.8, 999, 5]]
-seed_list = seed_SF
-group_num_list = np.arange(1, 21, 1)
-
-
-network_type = 'ER'
-d_list = [2000, 4000, 8000]
-seed_list = seed_ER
-group_num_list = np.arange(1, 10, 1)
 
 
 network_type = 'RGG'
@@ -433,13 +492,28 @@ group_num_list = np.arange(1, 10, 1)
 
 
 
-r = 0.1
-r_list = [0.05, 0.2, 0.3, 0.4, 0.6, 0.7, 0.8, 0.9]
+network_type = 'SF'
+d_list = [[2.1, 999, 2], [2.5, 999, 3], [3, 999, 4], [3.8, 999, 5]]
+d_list = [[2.1, 999, 2]]
+seed_list = seed_SF
+group_num_list = np.arange(1, 20, 1)
 
+network_type = 'ER'
+d_list = [2000, 4000, 8000]
+seed_list = seed_ER
+group_num_list = np.arange(1, 10, 1)
+
+
+
+
+r_list = [0, 0.2, 0.4, 0.6, 0.8, 1]
+r_list = ['None']
+
+space = 'log'
 for r in r_list:
     for d in d_list:
         for group_num in group_num_list:
-            xs_group_decouple = parallel_group_decouple_stable(network_type, N, beta, betaeffect, seed_list, d, group_num, dynamics, arguments, attractor_value, r)
+            parallel_group_decouple_stable(network_type, N, beta, betaeffect, seed_list, d, group_num, dynamics, arguments, attractor_value, r, space)
             pass
 
 
