@@ -27,7 +27,7 @@ from scipy.signal import find_peaks
 
 mpl.rcParams['axes.prop_cycle'] = cycler(color=['tab:blue', 'tab:orange', 'tab:green', 'tab:red', 'tab:purple', 'tab:brown', 'tab:pink', 'grey', 'tab:olive', 'tab:cyan']) 
 
-cpu_number = 1
+cpu_number = 5
 B = 0.1
 C = 1
 K_mutual = 5
@@ -274,6 +274,72 @@ def group_partition_degree(w, group_num, N_actual, space):
         print('groups wrong')
     return group_index, rearange_index
 
+def group_partition_state_degree(xs, w, group_num, N_actual, space, diff_states):
+    """TODO: Docstring for group_partition_log_degree.
+    :returns: TODO
+
+    """
+    xs_sort_diff = np.diff(np.sort(xs))
+    num_gaps = np.sum(xs_sort_diff > diff_states) 
+    if num_gaps == 0 or group_num == 1:
+        return group_partition_degree(w, group_num, N_actual, space)
+    elif num_gaps == 1:
+        index_transition = np.where(xs_sort_diff > diff_states)[0]
+        xs_low_criteria = np.sort(xs)[index_transition] + 1e-8
+        xs_high_criteria = np.sort(xs)[index_transition + 1] - 1e-8
+        index_w_low = np.where(xs < xs_low_criteria)[0]
+        index_w_high = np.where(xs > xs_high_criteria)[0]
+        w_unique = np.unique(w)
+        if group_num > np.size(w_unique):
+            if group_num == N_actual:
+                group_index = []
+                for i in range(N_actual):
+                    group_index.append([i])
+            else:
+                print('method not available')
+                return None
+        elif group_num == 2:
+            group_index = [index_w_low, index_w_high]
+
+        else:
+            length_groups = 0
+            bins = 1
+            while group_num:
+                group_low_index = []
+                group_high_index = []
+                if space == 'log':
+                    w_separate = np.logspace(np.log10(w.min()), np.log10(w.max()), bins)
+                elif space == 'linear':
+                    w_separate = np.linspace(w.min(), w.max(), bins)
+                elif space == 'bimode':
+                    w_separate = np.linspace(w.min(), w.max(), bins)
+                
+                w_separate[-1] = w_separate[-1] * 2
+                w_separate[0] = w_separate[0] *0.5
+                for w_i, w_j in zip(w_separate[:-1], w_separate[1:]):
+                    index = np.where((w < w_j)  & (w >= w_i ))[0]
+                    index_low = np.intersect1d(index, index_w_low)
+                    index_high = np.intersect1d(index, index_w_high)
+                    if len(index_low):
+                        group_low_index.append(index_low)
+                    if len(index_high):
+                        group_high_index.append(index_high)
+                length_groups = len(group_low_index) + len(group_high_index)
+                if length_groups <= group_num:
+                    bins += 1
+                elif length_groups > group_num:
+                    break
+            group_index = group_low_index
+            group_index.extend(group_high_index)
+        rearange_index = np.hstack((group_index))
+        if len(rearange_index) != N_actual:
+            print(w_separate, len(rearange_index))
+            print('groups wrong')
+        return group_index, rearange_index
+    elif num_gaps > 1:
+        print('num_gaps:', num_gaps, xs_sort_diff[-10:])
+        return None
+
 def group_partition_degree_core(A, group_num, N_actual, space):
     """TODO: Docstring for group_partition_log_degree.
     :returns: TODO
@@ -433,17 +499,12 @@ def group_degree_weighted(network_type, N, beta, betaeffect, seed, d, group_num,
     A, _, _, _, _ = network_generate(network_type, N, beta, betaeffect, seed, d)
     w = np.sum(A, 0)
     N_actual = np.size(A, 0)
-    if space == 'equal_node':
-        group_index, rearange_index = group_partition_degree_equal_node(A, group_num, N_actual)
-    elif space == 'linear' or space == 'log' or space == 'bimode':
-        group_index, rearange_index = group_partition_degree(w, group_num, N_actual, space)
-    elif space == 'move':
-        group_index, rearange_index = group_partition_degree(w, group_num, N_actual, 'linear')
     if ratio_threshold == 'None':
         if space == 'equal_node':
             group_index, rearange_index = group_partition_degree_equal_node(A, group_num, N_actual)
         elif space == 'linear' or space == 'log' or space == 'bimode':
-            group_index, rearange_index = group_partition_degree(w, group_num, N_actual, space)
+            #group_index, rearange_index = group_partition_degree(w, group_num, N_actual, space)
+            group_index, rearange_index = group_partition_degree_core(A, group_num, N_actual, space)
     else:
         if space == 'equal_node':
             group_index, rearange_index = group_partition_degree_equal_node(A, group_num, N_actual)
@@ -496,6 +557,53 @@ def group_state(network_type, N, beta, betaeffect, seed, d, group_num, dynamics,
     A, _, _, _, _ = network_generate(network_type, N, beta, betaeffect, seed, d)
     N_actual = np.size(A, 0)
     group_index, rearange_index = group_partition_degree(w, group_num, N_actual, space)
+
+    length_groups = len(group_index)
+    each_group_length = [len(i) for i in group_index]
+
+    "degree in each subgroup for all nodes"
+    A_rearange = A[rearange_index]
+    reduce_index = np.hstack((0, np.cumsum(each_group_length)))
+    w_group = np.add.reduceat(A_rearange, reduce_index[:-1])
+
+
+    "construct reduction adjacency matrix"
+    A_reduction = np.zeros((length_groups, length_groups))
+    for  i in range(length_groups):
+        for j in range(length_groups):
+            k_i = w[group_index[i]] 
+            A_reduction[i, j] = np.sum(k_i * np.sum(A[group_index[i]][:, group_index[j]], 1)) / k_i.sum()
+    A_index = np.where(A_reduction>0)
+    A_interaction = A_reduction[A_index]
+    index_i = A_index[0] 
+    index_j = A_index[1] 
+    degree_reduction = np.sum(A_reduction>0, 1)
+    cum_index = np.hstack((0, np.cumsum(degree_reduction)))
+    net_arguments = (index_i, index_j, A_interaction, cum_index)
+    initial_condition = np.ones(length_groups) * attractor_value
+    t = np.arange(0, 1000, 0.01)
+    if dynamics == 'mutual':
+        xs_group = odeint(mutual_multi, initial_condition, t, args=(arguments, net_arguments))[-1]
+    elif dynamics == 'BDP':
+        xs_group = odeint(BDP_multi, initial_condition, t, args=(arguments, net_arguments))[-1]
+    elif dynamics == 'PPI':
+        xs_group = odeint(PPI_multi, initial_condition, t, args=(arguments, net_arguments))[-1]
+    elif dynamics == 'CW':
+        xs_group = odeint(CW_multi, initial_condition, t, args=(arguments, net_arguments))[-1]
+
+    return xs_group, group_index, w_group
+
+def group_state_two_cluster(network_type, N, beta, betaeffect, seed, d, group_num, dynamics, arguments, attractor_value, space, xs, diff_states):
+    """TODO: Docstring for group_stable.
+
+    :arg1: TODO
+    :returns: TODO
+
+    """
+    A, _, _, _, _ = network_generate(network_type, N, beta, betaeffect, seed, d)
+    N_actual = np.size(A, 0)
+    w = np.sum(A, 0)
+    group_index, rearange_index = group_partition_state_degree(xs, w, group_num, N_actual, space, diff_states)
 
     length_groups = len(group_index)
     each_group_length = [len(i) for i in group_index]
@@ -871,6 +979,75 @@ def parallel_group_iteration_stable(network_type, N, beta, betaeffect, seed_list
     p.join()
     return None
 
+def group_iteration_two_cluster_stable(network_type, N, beta, betaeffect, seed, d, group_num, dynamics, arguments, attractor_value, space, iteration_step, diff_states):
+
+    """TODO: Docstring for group_decouple_stable.
+
+    :arg1: TODO
+    :returns: TODO
+
+    """
+
+    xs_beta, group_index, w_group = group_degree_weighted(network_type, N, beta, betaeffect, seed, d, 1, dynamics, arguments, attractor_value, r, space)
+    A, A_interaction, index_i, index_j, cum_index = network_generate(network_type, N, beta, betaeffect, seed, d)
+    w = np.sum(A, 0)
+    N_actual = np.size(A, 0)
+    initial_condition = attractor_value * np.ones(N_actual)
+    t = np.arange(0, 1000, 0.01)
+
+    net_arguments = (index_i, index_j, A_interaction, cum_index)
+
+    length_groups = len(xs_beta)
+    xs_group_transpose = xs_beta.reshape(length_groups, 1)
+    dynamics_multi = globals()[dynamics + '_multi']
+    dynamics_group_decouple = globals()[dynamics + '_group_decouple']
+    dynamics_nearest_neighbor = globals()[dynamics + '_nearest_neighbor']
+    xs_multi = odeint(dynamics_multi, initial_condition, t, args=(arguments, net_arguments))[-1]
+    xs_group_decouple = odeint(dynamics_group_decouple, initial_condition, t, args=(arguments, w_group, xs_group_transpose))[-1]
+    xs_nn = xs_group_decouple.copy()
+    xs_all_list = []
+    for l in range(iteration_step):
+        xs_nn = odeint(dynamics_nearest_neighbor, initial_condition, t, args=(arguments, net_arguments, xs_nn))[-1]
+        xs_group, group_index, w_group = group_state_two_cluster(network_type, N, beta, betaeffect, seed, d, group_num, dynamics, arguments, attractor_value, space, xs_nn, diff_states)
+        rearange_index = np.hstack((group_index))
+        group_number = np.hstack(([i * np.ones(len(j)) for i, j in enumerate(group_index)]))
+        xs_groups = np.hstack(([xs_group[i] * np.ones(len(j)) for i, j in enumerate(group_index)]))
+        length_groups = len(xs_group)
+        xs_group_transpose = xs_group.reshape(length_groups, 1)
+        xs_group_decouple_iteration = odeint(dynamics_group_decouple, initial_condition, t, args=(arguments, w_group, xs_group_transpose))[-1]
+
+        xs_all = np.vstack((group_number, rearange_index, xs_nn[rearange_index], xs_groups, xs_group_decouple_iteration[rearange_index]))
+        xs_all_list.append(xs_all)
+
+
+    "save data"
+    data=  np.vstack((xs_multi, w, xs_beta * np.ones(N_actual), xs_group_decouple, np.vstack((xs_all_list))))
+    des = '../data/' + dynamics + '/' + network_type + f'/xs_beta_two_cluster_iteraction_{iteration_step}_' + space + '/'
+
+    if not os.path.exists(des):
+        os.makedirs(des)
+    if betaeffect:
+        des_file = des + f'N={N}_d=' + str(d) + '_beta=' + str(beta) + f'_group_num={group_num}_seed={seed}.csv'
+    else:
+        des_file = des + f'N={N}_d=' + str(d) + '_wt=' + str(beta) + f'_group_num={group_num}_seed={seed}.csv'
+
+    df = pd.DataFrame(data.transpose())
+    df.to_csv(des_file, index=None, header=None, mode='a')
+    return None
+
+def parallel_group_iteration_two_cluster_stable(network_type, N, beta, betaeffect, seed_list, d, group_num, dynamics, arguments, attractor_value, space, iteration_step, diff_states):
+    """TODO: Docstring for parallel_group_decouple_stable.
+
+    :arg1: TODO
+    :returns: TODO
+
+    """
+    p = mp.Pool(cpu_number)
+    p.starmap_async(group_iteration_two_cluster_stable, [(network_type, N, beta, betaeffect, seed, d, group_num, dynamics, arguments, attractor_value, space, iteration_step, diff_states) for seed in seed_list]).get()
+    p.close()
+    p.join()
+    return None
+
 
 
 "evolution"
@@ -1004,7 +1181,8 @@ def evolution(network_type, N, beta, betaeffect, seed, d, group_num, dynamics, a
 
     
 
-seed1 = np.arange(1).tolist()
+seed1 = np.array([0])
+seed1 = np.arange(10).tolist()
 seed_SF = np.vstack((seed1, seed1)).transpose().tolist()
 seed_ER = seed1
 
@@ -1045,9 +1223,8 @@ network_type = 'SF'
 d_list = [[2.1, 999, 2], [2.5, 999, 3], [3, 999, 4], [3.8, 999, 5]]
 d_list = [[2.5, 999, 3]]
 seed_list = seed_SF
-group_num_list = np.arange(20, 30, 1)
-group_nun_list = np.array([50, 100, 200, 300, 400, 500])
-group_num_list = [2]
+group_num_list = np.array([2])
+group_num_list = np.arange(10, 20, 1)
 
 
 
@@ -1061,13 +1238,15 @@ partition_indicator = 'core_neighbor_sum'
 partition_indicator = 'weights'
 
 iteration_step = 10
+diff_states = 4
 
 for r in r_list:
     for d in d_list:
         for group_num in group_num_list:
             #parallel_group_decouple_stable(network_type, N, beta, betaeffect, seed_list, d, group_num, dynamics, arguments, attractor_value, r, space, partition_indicator)
             #parallel_group_decouple_nn_stable(network_type, N, beta, betaeffect, seed_list, d, group_num, dynamics, arguments, attractor_value, r, space, iteration_step)
-            parallel_group_iteration_stable(network_type, N, beta, betaeffect, seed_list, d, group_num, dynamics, arguments, attractor_value, space, iteration_step)
+            #parallel_group_iteration_stable(network_type, N, beta, betaeffect, seed_list, d, group_num, dynamics, arguments, attractor_value, space, iteration_step)
+            parallel_group_iteration_two_cluster_stable(network_type, N, beta, betaeffect, seed_list, d, group_num, dynamics, arguments, attractor_value, space, iteration_step, diff_states)
             pass
         #parallel_three_level_stable(network_type, N, beta, betaeffect, seed_list, d, dynamics, arguments, attractor_value)
         pass
