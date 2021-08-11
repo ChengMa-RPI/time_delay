@@ -1189,6 +1189,100 @@ def group_iteration_adaptive_two_cluster_stable(network_type, N, beta, betaeffec
     df.to_csv(des_file, index=None, header=None, mode='a')
     return None
 
+def iteration_adaptive(network_type, N, beta, betaeffect, seed, d, dynamics, arguments, attractor_value, iteration_step, xs_high_criteria):
+
+    """TODO: Docstring for group_decouple_stable.
+
+    :arg1: TODO
+    :returns: TODO
+
+    """
+    xs_all_list = []
+    t = np.arange(0, 1000, 0.01)
+    xs_beta = odeint(mutual_group_decouple, attractor_value, t, args=(arguments, 0, 10))[-1]
+    A, A_interaction, index_i, index_j, cum_index = network_generate(network_type, N, beta, betaeffect, seed, d)
+    w = np.sum(A, 0)
+    N_actual = np.size(A, 0)
+    neighbors = [np.where(A[i] > 0)[0] for i in range(N_actual)]
+    initial_condition = attractor_value * np.ones(N_actual)
+    net_arguments = (index_i, index_j, A_interaction, cum_index)
+
+    xs_adaptive = xs_beta * np.ones(N_actual)
+    for l in range(iteration_step):
+        xs_adaptive = xs_adaptive_calculation(xs_adaptive, w, neighbors, xs_high_criteria, A, arguments, xs_beta, attractor_value)
+        xs_all_list.append(xs_adaptive.copy())
+
+    "save data"
+    data=  np.vstack((xs_all_list))
+    des = '../data/' + dynamics + '/' + network_type + f'/xs_adaptive_iteration_step={iteration_step}/'
+
+    if not os.path.exists(des):
+        os.makedirs(des)
+    if betaeffect:
+        des_file = des + f'N={N}_d=' + str(d) + '_beta=' + str(beta) + f'_seed={seed}.csv'
+    else:
+        des_file = des + f'N={N}_d=' + str(d) + '_wt=' + str(beta) + f'_seed={seed}.csv'
+
+    df = pd.DataFrame(data.transpose())
+    df.to_csv(des_file, index=None, header=None, mode='a')
+    return None
+
+def group_iteration_adaptive_two_cluster_stable_improve(network_type, N, beta, betaeffect, seed, d, group_num, dynamics, arguments, attractor_value, space, iteration_step, diff_states):
+
+    """TODO: Docstring for group_decouple_stable.
+
+    :arg1: TODO
+    :returns: TODO
+
+    """
+    xs_all_list = []
+    dynamics_group_decouple = globals()[dynamics + '_group_decouple']
+    t = np.arange(0, 1000, 0.01)
+    A, A_interaction, index_i, index_j, cum_index = network_generate(network_type, N, beta, betaeffect, seed, d)
+    xs_beta = odeint(mutual_group_decouple, attractor_value, t, args=(arguments, 0, 10))[-1]
+    w = np.sum(A, 0)
+    N_actual = np.size(A, 0)
+    initial_condition = attractor_value * np.ones(N_actual)
+    net_arguments = (index_i, index_j, A_interaction, cum_index)
+    dynamics_multi = globals()[dynamics + '_multi']
+    xs_multi = odeint(dynamics_multi, initial_condition, t, args=(arguments, net_arguments))[-1]
+    xs_adaptive_des = '../data/' + dynamics + '/' + network_type + f'/xs_adaptive_iteration_step={iteration_step}/'
+    if betaeffect:
+        xs_adaptive_des_file = xs_adaptive_des + f'N={N}_d=' + str(d) + '_beta=' + str(beta) + f'_seed={seed}.csv'
+    else:
+        xs_adaptive_des_file = xs_adaptive_des + f'N={N}_d=' + str(d) + '_wt=' + str(beta) + f'_seed={seed}.csv'
+    xs_adaptive_list = np.array(pd.read_csv(xs_adaptive_des_file, header=None).iloc[:, :])
+
+    for l in range(iteration_step):
+        xs_adaptive = xs_adaptive_list[:, l]
+        xs_group, group_index, w_group = group_state_two_cluster(network_type, N, beta, betaeffect, seed, d, group_num, dynamics, arguments, attractor_value, space, xs_adaptive, diff_states)
+        rearange_index = np.hstack((group_index))
+        group_number = np.hstack(([i * np.ones(len(j)) for i, j in enumerate(group_index)]))
+        xs_groups = np.hstack(([xs_group[i] * np.ones(len(j)) for i, j in enumerate(group_index)]))
+        length_groups = len(xs_group)
+        xs_group_transpose = xs_group.reshape(length_groups, 1)
+        xs_group_decouple_iteration = odeint(dynamics_group_decouple, initial_condition, t, args=(arguments, w_group, xs_group_transpose))[-1]
+
+        xs_all = np.vstack((group_number, rearange_index, xs_adaptive[rearange_index], xs_groups, xs_group_decouple_iteration[rearange_index]))
+        xs_all_list.append(xs_all)
+
+    "save data"
+    data=  np.vstack((xs_multi, w, xs_beta * np.ones(N_actual), np.vstack((xs_all_list))))
+    des = '../data/' + dynamics + '/' + network_type + f'/xs_beta_two_cluster_iteraction_{iteration_step}_adaptive_' + space + '/'
+
+    if not os.path.exists(des):
+        os.makedirs(des)
+    if betaeffect:
+        des_file = des + f'N={N}_d=' + str(d) + '_beta=' + str(beta) + f'_group_num={group_num}_seed={seed}.csv'
+    else:
+        des_file = des + f'N={N}_d=' + str(d) + '_wt=' + str(beta) + f'_group_num={group_num}_seed={seed}.csv'
+
+    df = pd.DataFrame(data.transpose())
+    df.to_csv(des_file, index=None, header=None, mode='a')
+    return None
+
+
+
 def parallel_group_iteration_adaptive_two_cluster_stable(network_type, N, beta, betaeffect, seed_list, d, group_num, dynamics, arguments, attractor_value, space, iteration_step, diff_states, xs_high_criteria):
     """TODO: Docstring for parallel_group_decouple_stable.
 
@@ -1376,8 +1470,8 @@ network_type = 'SF'
 d_list = [[2.1, 999, 2], [2.5, 999, 3], [3, 999, 4], [3.8, 999, 5]]
 d_list = [[2.5, 999, 3]]
 seed_list = seed_SF
-group_num_list = np.arange(1, 20, 1)
 group_num_list = np.array([1])
+group_num_list = np.arange(1, 20, 1)
 
 
 
@@ -1394,6 +1488,11 @@ iteration_step = 3
 diff_states = 4
 xs_high_criteria = 5
 
+for d in d_list:
+    for seed in seed_list:
+        #iteration_adaptive(network_type, N, beta, betaeffect, seed, d, dynamics, arguments, attractor_value, iteration_step, xs_high_criteria)
+        pass
+
 for r in r_list:
     for d in d_list:
         for group_num in group_num_list:
@@ -1401,7 +1500,8 @@ for r in r_list:
             #parallel_group_decouple_nn_stable(network_type, N, beta, betaeffect, seed_list, d, group_num, dynamics, arguments, attractor_value, r, space, iteration_step)
             #parallel_group_iteration_stable(network_type, N, beta, betaeffect, seed_list, d, group_num, dynamics, arguments, attractor_value, space, iteration_step)
             #parallel_group_iteration_two_cluster_stable(network_type, N, beta, betaeffect, seed_list, d, group_num, dynamics, arguments, attractor_value, space, iteration_step, diff_states)
-            parallel_group_iteration_adaptive_two_cluster_stable(network_type, N, beta, betaeffect, seed_list, d, group_num, dynamics, arguments, attractor_value, space, iteration_step, diff_states, xs_high_criteria)
+            #parallel_group_iteration_adaptive_two_cluster_stable(network_type, N, beta, betaeffect, seed_list, d, group_num, dynamics, arguments, attractor_value, space, iteration_step, diff_states, xs_high_criteria)
+            group_iteration_adaptive_two_cluster_stable_improve(network_type, N, beta, betaeffect, seed, d, group_num, dynamics, arguments, attractor_value, space, iteration_step, diff_states)
             pass
         #parallel_three_level_stable(network_type, N, beta, betaeffect, seed_list, d, dynamics, arguments, attractor_value)
         pass
