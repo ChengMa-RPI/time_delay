@@ -1090,14 +1090,14 @@ def index_next_calculation(xs_adaptive, w, neighbors, xs_high_criteria, index_ca
                 index_cal.extend(high_neighbor_i_max_degree)
     return index_cal
 
-
-def xs_adaptive_calculation(xs_adaptive, index_calculated, w, neighbors, xs_high_criteria, A, arguments, xs_beta, attractor_value):
+def xs_adaptive_calculation(xs_adaptive, w, neighbors, xs_high_criteria, A, arguments, xs_beta, attractor_value):
     """TODO: Docstring for xs_adaptive.
 
     :arg1: TODO
     :returns: TODO
 
     """
+    index_calculated = []
     t = np.arange(0, 1000, 0.01)
     dynamics_partknown = globals()[dynamics + '_partknown']
     change = 1
@@ -1118,7 +1118,7 @@ def xs_adaptive_calculation(xs_adaptive, index_calculated, w, neighbors, xs_high
             else:
                 if change > 0:
                     break
-    return xs_adaptive, index_calculated
+    return xs_adaptive 
 
 def group_iteration_adaptive_two_cluster_stable(network_type, N, beta, betaeffect, seed, d, group_num, dynamics, arguments, attractor_value, space, iteration_step, diff_states, xs_high_criteria):
 
@@ -1143,9 +1143,9 @@ def group_iteration_adaptive_two_cluster_stable(network_type, N, beta, betaeffec
     dynamics_multi = globals()[dynamics + '_multi']
     xs_multi = odeint(dynamics_multi, initial_condition, t, args=(arguments, net_arguments))[-1]
     xs_adaptive = xs_beta * np.ones(N_actual)
-    index_calculated = []
     for l in range(iteration_step):
-        xs_adaptive, index_calculated = xs_adaptive_calculation(xs_adaptive, index_calculated, w, neighbors, xs_high_criteria, A, arguments, xs_beta, attractor_value)
+        index_calculated = []
+        xs_adaptive = xs_adaptive_calculation(xs_adaptive, w, neighbors, xs_high_criteria, A, arguments, xs_beta, attractor_value)
         xs_group, group_index, w_group = group_state_two_cluster(network_type, N, beta, betaeffect, seed, d, group_num, dynamics, arguments, attractor_value, space, xs_adaptive, diff_states)
         rearange_index = np.hstack((group_index))
         group_number = np.hstack(([i * np.ones(len(j)) for i, j in enumerate(group_index)]))
@@ -1171,7 +1171,6 @@ def group_iteration_adaptive_two_cluster_stable(network_type, N, beta, betaeffec
     df = pd.DataFrame(data.transpose())
     df.to_csv(des_file, index=None, header=None, mode='a')
     return None
-
 
 def parallel_group_iteration_adaptive_two_cluster_stable(network_type, N, beta, betaeffect, seed_list, d, group_num, dynamics, arguments, attractor_value, space, iteration_step, diff_states, xs_high_criteria):
     """TODO: Docstring for parallel_group_decouple_stable.
