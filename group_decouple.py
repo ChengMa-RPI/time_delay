@@ -1101,22 +1101,41 @@ def xs_adaptive_calculation(xs_adaptive, w, neighbors, xs_high_criteria, A, argu
     t = np.arange(0, 1000, 0.01)
     dynamics_group_decouple = globals()[dynamics + '_group_decouple']
     change = 1
-    while change:
-        index_cal_list = index_next_calculation(xs_adaptive, w, neighbors, xs_high_criteria, index_calculated)
-        change = 0
-        for index_cal in index_cal_list:
-            index_cal_neighbor = neighbors[index_cal]
-            w_cal = A[index_cal]
-            w_cal_eff_index = np.where(w_cal > 0)[0]
-            xs_cal_neighbor = xs_adaptive[w_cal_eff_index]
-            xs_index_cal = odeint(dynamics_group_decouple, attractor_value, t, args=(arguments, w_cal[w_cal_eff_index], xs_cal_neighbor))[-1]
-            xs_adaptive[index_cal] = xs_index_cal
-            if xs_index_cal > xs_high_criteria :
-                index_calculated.append(index_cal)
-                change += 1
-            else:
-                if change > 0:
-                    break
+    last_step_all_once = 0
+    while last_step_all_once == 0:
+        if change == 0:
+            last_step_all_once = 1
+            index_all = np.arange(len(xs_adaptive))
+            index_last_step = np.setdiff1d(index_all, index_calculated)
+            initial_condition = np.ones(len(index_last_step)) * attractor_value
+            dynamics_nearest_neighbor = globals()[dynamics + '_nearest_neighbor']
+            A_last_step = A[index_last_step]
+            A_index = np.where(A_last_step>0)
+            A_interaction = A_last_step[A_index]
+            index_i = A_index[0] 
+            index_j = A_index[1] 
+            degree = np.sum(A_last_step>0, 1)
+            cum_index = np.hstack((0, np.cumsum(degree)))
+            net_arguments = (index_i, index_j, A_interaction, cum_index)
+            xs_adaptive[index_last_step] = odeint(dynamics_nearest_neighbor, initial_condition, t, args=(arguments, net_arguments, xs_adaptive))[-1]
+            break
+
+        elif change > 0:
+            index_cal_list = index_next_calculation(xs_adaptive, w, neighbors, xs_high_criteria, index_calculated)
+            change = 0
+            for index_cal in index_cal_list:
+                index_cal_neighbor = neighbors[index_cal]
+                w_cal = A[index_cal]
+                w_cal_eff_index = np.where(w_cal > 0)[0]
+                xs_cal_neighbor = xs_adaptive[w_cal_eff_index]
+                xs_index_cal = odeint(dynamics_group_decouple, attractor_value, t, args=(arguments, w_cal[w_cal_eff_index], xs_cal_neighbor))[-1]
+                xs_adaptive[index_cal] = xs_index_cal
+                if xs_index_cal > xs_high_criteria :
+                    index_calculated.append(index_cal)
+                    change += 1
+                else:
+                    if change > 0:
+                        break
     return xs_adaptive 
 
 def group_iteration_adaptive_two_cluster_stable(network_type, N, beta, betaeffect, seed, d, group_num, dynamics, arguments, attractor_value, space, iteration_step, diff_states, xs_high_criteria):
@@ -1316,7 +1335,7 @@ def evolution(network_type, N, beta, betaeffect, seed, d, group_num, dynamics, a
     
 
 seed1 = np.arange(10).tolist()
-seed1 = np.array([0])
+seed1 = np.array([6])
 seed_SF = np.vstack((seed1, seed1)).transpose().tolist()
 seed_ER = seed1
 
@@ -1371,7 +1390,7 @@ space = 'log'
 partition_indicator = 'core_neighbor_sum'
 partition_indicator = 'weights'
 
-iteration_step = 10
+iteration_step = 3
 diff_states = 4
 xs_high_criteria = 5
 
