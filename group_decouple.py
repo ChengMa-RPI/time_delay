@@ -28,7 +28,7 @@ from collections import Counter
 
 mpl.rcParams['axes.prop_cycle'] = cycler(color=['tab:blue', 'tab:orange', 'tab:green', 'tab:red', 'tab:purple', 'tab:brown', 'tab:pink', 'grey', 'tab:olive', 'tab:cyan']) 
 
-cpu_number = 5
+cpu_number = 1
 B = 0.1
 C = 1
 K_mutual = 5
@@ -1099,18 +1099,17 @@ def xs_adaptive_calculation(xs_adaptive, w, neighbors, xs_high_criteria, A, argu
     """
     index_calculated = []
     t = np.arange(0, 1000, 0.01)
-    dynamics_partknown = globals()[dynamics + '_partknown']
+    dynamics_group_decouple = globals()[dynamics + '_group_decouple']
     change = 1
     while change:
         index_cal_list = index_next_calculation(xs_adaptive, w, neighbors, xs_high_criteria, index_calculated)
         change = 0
         for index_cal in index_cal_list:
             index_cal_neighbor = neighbors[index_cal]
-            index_cal_neighbor_calculated = np.array(np.intersect1d(index_cal_neighbor, index_calculated), dtype=int)
-            index_cal_neighbor_uncalculated = np.array(np.setdiff1d(index_cal_neighbor, index_cal_neighbor_calculated), dtype=int)
-            w_cal = np.hstack((A[index_cal, index_cal_neighbor_calculated], np.sum(A[index_cal, index_cal_neighbor_uncalculated])))
-            xs_known = np.hstack((xs_adaptive[index_cal_neighbor_calculated], xs_beta))
-            xs_index_cal = odeint(dynamics_partknown, attractor_value, t, args=(arguments, w_cal, xs_known))[-1]
+            w_cal = A[index_cal]
+            w_cal_eff_index = np.where(w_cal > 0)[0]
+            xs_cal_neighbor = xs_adaptive[w_cal_eff_index]
+            xs_index_cal = odeint(dynamics_group_decouple, attractor_value, t, args=(arguments, w_cal[w_cal_eff_index], xs_cal_neighbor))[-1]
             xs_adaptive[index_cal] = xs_index_cal
             if xs_index_cal > xs_high_criteria :
                 index_calculated.append(index_cal)
@@ -1144,7 +1143,6 @@ def group_iteration_adaptive_two_cluster_stable(network_type, N, beta, betaeffec
     xs_multi = odeint(dynamics_multi, initial_condition, t, args=(arguments, net_arguments))[-1]
     xs_adaptive = xs_beta * np.ones(N_actual)
     for l in range(iteration_step):
-        index_calculated = []
         xs_adaptive = xs_adaptive_calculation(xs_adaptive, w, neighbors, xs_high_criteria, A, arguments, xs_beta, attractor_value)
         xs_group, group_index, w_group = group_state_two_cluster(network_type, N, beta, betaeffect, seed, d, group_num, dynamics, arguments, attractor_value, space, xs_adaptive, diff_states)
         rearange_index = np.hstack((group_index))
@@ -1317,8 +1315,8 @@ def evolution(network_type, N, beta, betaeffect, seed, d, group_num, dynamics, a
 
     
 
-seed1 = np.array([0])
 seed1 = np.arange(10).tolist()
+seed1 = np.array([0])
 seed_SF = np.vstack((seed1, seed1)).transpose().tolist()
 seed_ER = seed1
 
