@@ -24,6 +24,7 @@ import itertools
 from scipy import linalg as slin
 from scipy.sparse.linalg import eigs as sparse_eig
 from scipy.signal import find_peaks
+from collections import Counter
 
 mpl.rcParams['axes.prop_cycle'] = cycler(color=['tab:blue', 'tab:orange', 'tab:green', 'tab:red', 'tab:purple', 'tab:brown', 'tab:pink', 'grey', 'tab:olive', 'tab:cyan']) 
 
@@ -133,6 +134,19 @@ def mutual_three_level_beta(x, t, arguments, beta):
     dxdt = B + x * (1 - x/K) * ( x/C - 1) + beta * x * x / (D + E * x + H * x)
     return dxdt
 
+def mutual_partknown(x, t, arguments, w, xs_known):
+    """TODO: Docstring for mutual_group_decouple.
+
+    :x: TODO
+    :t: TODO
+    :arguments: TODO
+    :w: TODO
+    :returns: TODO
+
+    """
+    B, C, D, E, H, K = arguments
+    dxdt = B + x * (1 - x/K) * ( x/C - 1) + np.sum(w * x * xs_known / (D + E * x + H * xs_known) )
+    return dxdt 
 
 
 def BDP_group_decouple(x, t, arguments, w, xs_group_transpose):
@@ -467,7 +481,7 @@ def group_movement(A, group_index, rearange_index, ratio_threshold):
     """
     w = np.sum(A, 0)
     N_actual = np.size(A, 0)
-    neighbors_degree = [w[np.where(A[i] == 1)[0]] for i in range(N_actual)]
+    neighbors_degree = [w[np.where(A[i] > 0 )[0]] for i in range(N_actual)]
     group_num = len(group_index)
     w_min = [np.min(w[group_index[i]]) for i in range(group_num)]
     w_max = [np.max(w[group_index[i]]) for i in range(group_num)]
@@ -1049,6 +1063,129 @@ def parallel_group_iteration_two_cluster_stable(network_type, N, beta, betaeffec
     return None
 
 
+def index_next_calculation(xs_adaptive, w, neighbors, xs_high_criteria, index_calculated):
+    """TODO: Docstring for index_next_calculation.
+
+    :xs_adaptive: TODO
+    :w: TODO
+    :returns: TODO
+
+    """
+    index_high = np.where(xs_adaptive > xs_high_criteria)[0]
+    if len(index_high) == 0:
+        index_cal = [np.argsort(w)[-1]]
+    elif len(index_high):
+        high_neighbor = [neighbors[index_high_i] for index_high_i in index_high]
+        high_neighbor_all = np.hstack((high_neighbor))
+        high_neighbor_counter = Counter(high_neighbor_all)
+        counter_keys = np.array(list(high_neighbor_counter.keys()))
+        counter_values = np.array(list(high_neighbor_counter.values()))
+        counter_values_unique = np.unique(counter_values)
+        index_cal = []
+        for i in counter_values_unique[::-1]:
+            high_neighbor_i = counter_keys[np.where(counter_values == i)[0]]
+            high_neighbor_i_candidate = np.setdiff1d(high_neighbor_i, index_calculated)
+            if len(high_neighbor_i_candidate):
+                high_neighbor_i_max_degree = high_neighbor_i_candidate[np.argsort(w[high_neighbor_i_candidate])[::-1]]
+                index_cal.extend(high_neighbor_i_max_degree)
+    return index_cal
+
+
+def xs_adaptive_calculation(xs_adaptive, index_calculated, w, neighbors, xs_high_criteria, A, arguments, xs_beta, attractor_value):
+    """TODO: Docstring for xs_adaptive.
+
+    :arg1: TODO
+    :returns: TODO
+
+    """
+    t = np.arange(0, 1000, 0.01)
+    dynamics_partknown = globals()[dynamics + '_partknown']
+    change = 1
+    while change:
+        index_cal_list = index_next_calculation(xs_adaptive, w, neighbors, xs_high_criteria, index_calculated)
+        change = 0
+        for index_cal in index_cal_list:
+            index_cal_neighbor = neighbors[index_cal]
+            index_cal_neighbor_calculated = np.array(np.intersect1d(index_cal_neighbor, index_calculated), dtype=int)
+            index_cal_neighbor_uncalculated = np.array(np.setdiff1d(index_cal_neighbor, index_cal_neighbor_calculated), dtype=int)
+            w_cal = np.hstack((A[index_cal, index_cal_neighbor_calculated], np.sum(A[index_cal, index_cal_neighbor_uncalculated])))
+            xs_known = np.hstack((xs_adaptive[index_cal_neighbor_calculated], xs_beta))
+            xs_index_cal = odeint(dynamics_partknown, attractor_value, t, args=(arguments, w_cal, xs_known))[-1]
+            xs_adaptive[index_cal] = xs_index_cal
+            if xs_index_cal > xs_high_criteria :
+                index_calculated.append(index_cal)
+                change += 1
+            else:
+                if change > 0:
+                    break
+    return xs_adaptive, index_calculated
+
+def group_iteration_adaptive_two_cluster_stable(network_type, N, beta, betaeffect, seed, d, group_num, dynamics, arguments, attractor_value, space, iteration_step, diff_states, xs_high_criteria):
+
+    """TODO: Docstring for group_decouple_stable.
+
+    :arg1: TODO
+    :returns: TODO
+
+    """
+    #xs_beta, group_index, w_group = group_degree_weighted(network_type, N, beta, betaeffect, seed, d, 1, dynamics, arguments, attractor_value, r, space)
+    xs_all_list = []
+    dynamics_group_decouple = globals()[dynamics + '_group_decouple']
+    t = np.arange(0, 1000, 0.01)
+    xs_beta = odeint(mutual_group_decouple, attractor_value, t, args=(arguments, 0, 10))[-1]
+    A, A_interaction, index_i, index_j, cum_index = network_generate(network_type, N, beta, betaeffect, seed, d)
+    w = np.sum(A, 0)
+    N_actual = np.size(A, 0)
+    neighbors = [np.where(A[i] > 0)[0] for i in range(N_actual)]
+    initial_condition = attractor_value * np.ones(N_actual)
+    net_arguments = (index_i, index_j, A_interaction, cum_index)
+
+    dynamics_multi = globals()[dynamics + '_multi']
+    xs_multi = odeint(dynamics_multi, initial_condition, t, args=(arguments, net_arguments))[-1]
+    xs_adaptive = xs_beta * np.ones(N_actual)
+    index_calculated = []
+    for l in range(iteration_step):
+        xs_adaptive, index_calculated = xs_adaptive_calculation(xs_adaptive, index_calculated, w, neighbors, xs_high_criteria, A, arguments, xs_beta, attractor_value)
+        xs_group, group_index, w_group = group_state_two_cluster(network_type, N, beta, betaeffect, seed, d, group_num, dynamics, arguments, attractor_value, space, xs_adaptive, diff_states)
+        rearange_index = np.hstack((group_index))
+        group_number = np.hstack(([i * np.ones(len(j)) for i, j in enumerate(group_index)]))
+        xs_groups = np.hstack(([xs_group[i] * np.ones(len(j)) for i, j in enumerate(group_index)]))
+        length_groups = len(xs_group)
+        xs_group_transpose = xs_group.reshape(length_groups, 1)
+        xs_group_decouple_iteration = odeint(dynamics_group_decouple, initial_condition, t, args=(arguments, w_group, xs_group_transpose))[-1]
+
+        xs_all = np.vstack((group_number, rearange_index, xs_adaptive[rearange_index], xs_groups, xs_group_decouple_iteration[rearange_index]))
+        xs_all_list.append(xs_all)
+
+    "save data"
+    data=  np.vstack((xs_multi, w, xs_beta * np.ones(N_actual), np.vstack((xs_all_list))))
+    des = '../data/' + dynamics + '/' + network_type + f'/xs_beta_two_cluster_iteraction_{iteration_step}_adaptive_' + space + '/'
+
+    if not os.path.exists(des):
+        os.makedirs(des)
+    if betaeffect:
+        des_file = des + f'N={N}_d=' + str(d) + '_beta=' + str(beta) + f'_group_num={group_num}_seed={seed}.csv'
+    else:
+        des_file = des + f'N={N}_d=' + str(d) + '_wt=' + str(beta) + f'_group_num={group_num}_seed={seed}.csv'
+
+    df = pd.DataFrame(data.transpose())
+    df.to_csv(des_file, index=None, header=None, mode='a')
+    return None
+
+
+def parallel_group_iteration_adaptive_two_cluster_stable(network_type, N, beta, betaeffect, seed_list, d, group_num, dynamics, arguments, attractor_value, space, iteration_step, diff_states, xs_high_criteria):
+    """TODO: Docstring for parallel_group_decouple_stable.
+
+    :arg1: TODO
+    :returns: TODO
+
+    """
+    p = mp.Pool(cpu_number)
+    p.starmap_async(group_iteration_adaptive_two_cluster_stable, [(network_type, N, beta, betaeffect, seed, d, group_num, dynamics, arguments, attractor_value, space, iteration_step, diff_states, xs_high_criteria) for seed in seed_list]).get()
+    p.close()
+    p.join()
+    return None
+
 
 "evolution"
 
@@ -1223,8 +1360,8 @@ network_type = 'SF'
 d_list = [[2.1, 999, 2], [2.5, 999, 3], [3, 999, 4], [3.8, 999, 5]]
 d_list = [[2.5, 999, 3]]
 seed_list = seed_SF
-group_num_list = np.array([2])
-group_num_list = np.arange(10, 20, 1)
+group_num_list = np.arange(1, 20, 1)
+group_num_list = np.array([1])
 
 
 
@@ -1239,6 +1376,7 @@ partition_indicator = 'weights'
 
 iteration_step = 10
 diff_states = 4
+xs_high_criteria = 5
 
 for r in r_list:
     for d in d_list:
@@ -1246,12 +1384,15 @@ for r in r_list:
             #parallel_group_decouple_stable(network_type, N, beta, betaeffect, seed_list, d, group_num, dynamics, arguments, attractor_value, r, space, partition_indicator)
             #parallel_group_decouple_nn_stable(network_type, N, beta, betaeffect, seed_list, d, group_num, dynamics, arguments, attractor_value, r, space, iteration_step)
             #parallel_group_iteration_stable(network_type, N, beta, betaeffect, seed_list, d, group_num, dynamics, arguments, attractor_value, space, iteration_step)
-            parallel_group_iteration_two_cluster_stable(network_type, N, beta, betaeffect, seed_list, d, group_num, dynamics, arguments, attractor_value, space, iteration_step, diff_states)
+            #parallel_group_iteration_two_cluster_stable(network_type, N, beta, betaeffect, seed_list, d, group_num, dynamics, arguments, attractor_value, space, iteration_step, diff_states)
+            parallel_group_iteration_adaptive_two_cluster_stable(network_type, N, beta, betaeffect, seed_list, d, group_num, dynamics, arguments, attractor_value, space, iteration_step, diff_states, xs_high_criteria)
             pass
         #parallel_three_level_stable(network_type, N, beta, betaeffect, seed_list, d, dynamics, arguments, attractor_value)
         pass
 
-
+xs_high_criteria = 5
+seed = [0, 0]
+#index_calculated = group_iteration_adaptive_two_cluster_stable(network_type, N, beta, betaeffect, seed, d, group_num, dynamics, arguments, attractor_value, space, iteration_step, diff_states, xs_high_criteria)
 
 space = 'log'
 plot_type = 'i'
@@ -1343,4 +1484,8 @@ args_regroup_decouple = (arguments, w_regroup, xs_regroup_transpose)
 xs_regroup_decouple = ode_stable(dynamics_regroup_decouple, initial_condition, t_start, t_interval, dt, args_regroup_decouple, error)
 
 
+
+
+dfdxj = (xi * (D + E * xi + H * xj) - xi * xj * H ) / (D + E * xi + H * xj) ** 2 
+dfdxi = k * (xj * (D + E * xi + H * xj) - xi * xj * E ) / (D + E * xi + H * xj) ** 2  + (1/C + 1/K) * 2 * xi - 3 *xi**2/C/K - 1
 """
