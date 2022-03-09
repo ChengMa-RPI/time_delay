@@ -224,7 +224,7 @@ def select_network_sample(network_type, N, seed, d, beta_pres, error_tol=0.03):
         df.to_csv(des_file, index=None, header=None, mode='a')
     return data_collect
 
-def data_network_sample(network_type, N, beta_pres, weight_list, attractor_value, generate_index_list):
+def xs_multi_network_sample(network_type, N, beta_pres, weight_list, attractor_value, generate_index_list):
     """TODO: Docstring for data_network_sample.
 
     :network_type: TODO
@@ -240,6 +240,27 @@ def data_network_sample(network_type, N, beta_pres, weight_list, attractor_value
     if network_type == 'SF':
         gamma_list, seed_list, kmin_list, kmax_list, kmean_list, h1_list, h2_list, beta_cal_list = net_data.transpose()
         p.starmap_async(xs_multi_bifurcation, [(network_type, N, [int(seed), int(seed)], [gamma, N-1, int(kmin)], weight_list, attractor_value) for seed, gamma, kmin in zip(seed_list[generate_index_list], gamma_list[generate_index_list], kmin_list[generate_index_list] ) ]) .get()
+    p.close()
+    p.join()
+ 
+    return None
+
+def xs_group_network_sample(network_type, N, beta_pres, weight_list, m_list, attractor_value, space, tradeoff_para, method, generate_index_list):
+    """TODO: Docstring for data_network_sample.
+
+    :network_type: TODO
+    :N: TODO
+    :: TODO
+    :returns: TODO
+
+    """
+    des = '../data/beta_pres_networks/'   
+    des_file =des + f'beta_pres={beta_pres}_' + network_type + f'_N={N}.csv'
+    net_data = np.array(pd.read_csv(des_file, header=None).iloc[:, :])
+    p = mp.Pool(cpu_number)
+    if network_type == 'SF':
+        gamma_list, seed_list, kmin_list, kmax_list, kmean_list, h1_list, h2_list, beta_cal_list = net_data.transpose()
+        p.starmap_async(xs_group_partition_bifurcation, [(network_type, N, [int(seed), int(seed)], [gamma, N-1, int(kmin)], weight_list,  m_list, attractor_value, space, tradeoff_para, method) for seed, gamma, kmin in zip(seed_list[generate_index_list], gamma_list[generate_index_list], kmin_list[generate_index_list] ) ]) .get()
     p.close()
     p.join()
  
@@ -266,11 +287,12 @@ def critical_point(network_type, N, seed, d, weight_list):
     y_multi = np.array([betaspace(A, xs_multi[i])[-1] for i in range(len(weight_list))])
     #y_multi = np.array([np.mean(xs_multi[i]) for i in range(len(weight_list))])
     transition_index = np.where(y_multi > 2.) [0][0]
-    transition_index = np.where(np.sum(xs_multi > 5, 1) / N > 0.9) [0][0]
+    transition_index = np.where(np.sum(xs_multi > 5, 1) / N > 0.5) [0][0]
     critical_weight = weight_list[transition_index]
     return y_multi, critical_weight
 
-def critical_point_samples(network_type, N, beta_pres, weight_list):
+
+def critical_point_plot(network_type, N, beta_pres, weight_list):
     """TODO: Docstring for critical_point_samples.
 
     :network_type: TODO
@@ -284,7 +306,7 @@ def critical_point_samples(network_type, N, beta_pres, weight_list):
     data = np.array(pd.read_csv(des_file, header=None).iloc[:, :])
     if network_type == 'SF':
         gamma_list, seed_list, kmin_list, kmax_list, kmean_list, h1_list, h2_list, beta_cal_list = data.transpose()
-        plot_index =np.arange(13)
+        plot_index =np.arange(75)
         y_multi_list = np.zeros((len(plot_index), len(weight_list) )) 
         critical_w_list = np.zeros((len(plot_index)))
         for i, gamma, kmin, seed in zip(range(len(plot_index)), gamma_list[plot_index], kmin_list[plot_index], seed_list[plot_index]):
@@ -295,7 +317,7 @@ def critical_point_samples(network_type, N, beta_pres, weight_list):
             y_multi_list[i] = y_multi
             #plt.plot(weight_list, y_multi, label=f'h={h2_list[plot_index[i]]}')
 
-        plt.plot(h2_list[plot_index], critical_w_list, '.')
+        plt.plot(kmean_list[plot_index], critical_w_list, '.')
         plt.legend()
         #plt.show()
     return None
@@ -312,9 +334,9 @@ N = 1000
 network_type = 'SF'
 kmax = N-1
 kmin = 5
-number_trial = 1
+number_trial = 100
 beta_pres = 20
-gamma_list = [2.1]
+gamma_list = [3.6, 3.7, 3.8, 3.9, 4]
     
 for gamma in gamma_list:
     data_collects = 0
@@ -322,8 +344,7 @@ for gamma in gamma_list:
         seed = [i, i]
         d = [gamma, kmax, kmin]
         #data_collect = select_network_sample(network_type, N, seed, d, beta_pres, error_tol=0.03)
-        data_collect = 0
-        data_collects += data_collect
+        #data_collects += data_collect
     if data_collects == 0:
         print(gamma)
         break
@@ -336,19 +357,6 @@ for gamma, kmin, seed in zip(gamma_list, kmin_list, seed_list):
     #degrees, beta_cal, kmean, h1, h2 = generate_SF(N, seed, gamma, kmax, kmin)
     #print(gamma, kmin, beta_cal, kmean, h1, h2)
     pass
-
-
-                
-N = 1000
-k_min = 4
-k_max = 50
-alpha_decrease = 0.9
-alpha_increase = 1.1
-beta_pres = 20
-deg_ave_pres = 12
-degree_sequence = np.random.randint(k_min, k_max, N)
-#degree_change = beta_preserve(degree_sequence, beta_pres, deg_ave_pres, alpha_decrease, alpha_increase)
-
 
 
 
@@ -393,9 +401,11 @@ for gamma, kmin, seed in zip(gamma_list, kmin_list, seed_list):
     pass
 
 cpu_number = 4
-generate_index_list = [18, 19, 20, 21]
-data_network_sample(network_type, N, beta_pres, weight_list, attractor_value, generate_index_list)
-#critical_point_samples(network_type, N, beta_pres, weight_list)
+generate_index_list = [0, 1, 2, 3]
+#xs_multi_network_sample(network_type, N, beta_pres, weight_list, attractor_value, generate_index_list)
+m_list = np.arange(1, 50, 1)
+xs_group_network_sample(network_type, N, beta_pres, weight_list, m_list, attractor_value, space, tradeoff_para, method, generate_index_list)
+#critical_point_plot(network_type, N, beta_pres, weight_list)
 
 """
 beta_list = np.zeros((number_trial))
