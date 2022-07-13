@@ -521,7 +521,7 @@ def decouple_chain_rule(A, arguments, xs):
             #print(nu,tau)
     return tau_list 
 
-def eigenvector_zeroeigenvalue(A, arguments, xs):
+def eigenvector_zeroeigenvalue(network_type, arguments, N, beta, betaeffect, d, seed):
     """TODO: Docstring for eigenvector.
 
     :A: TODO
@@ -530,6 +530,16 @@ def eigenvector_zeroeigenvalue(A, arguments, xs):
     :returns: TODO
 
     """
+    A, A_interaction, index_i, index_j, cum_index = network_generate(network_type, N, beta, betaeffect, seed, d)
+    beta, _ = betaspace(A, [0])
+    N_actual = np.size(A, 0)
+    net_arguments = (index_i, index_j, A_interaction, cum_index)
+
+    initial_condition = np.ones((N_actual)) * 5.0
+    t = np.arange(0, 500, 0.01)
+    dt = 0.01
+    xs = odeint(mutual_multi, initial_condition, t, args=(arguments, net_arguments))[-1]
+
     B, C, D, E, H, K = arguments
     fx = (1-xs/K) * (2*xs/C-1)
     fxt = -xs/K*(xs/C-1)
@@ -558,6 +568,18 @@ def eigenvector_zeroeigenvalue(A, arguments, xs):
     M = np.diagflat(nu * imag - fx - fxt * np.exp(- nu * tau * imag) - gx_i) - gx_j 
     eigenvalue, eigenvector = np.linalg.eig(M)
     eigenvector_zero = eigenvector[:, np.argmin(np.abs(eigenvalue))]
+    eigenvector_abs = np.abs(eigenvector_zero)
+    plt.hist(eigenvector_abs, np.arange(0,1,0.01))
+    plt.subplots_adjust(left=0.18, right=0.98, wspace=0.25, hspace=0.25, bottom=0.18, top=0.98)
+    plt.xticks(fontsize=ticksize)
+    plt.yticks(fontsize=ticksize)
+    plt.xlabel('$|v|$', fontsize= fs)
+    plt.ylabel('Counts', fontsize =fs)
+    plt.locator_params(axis='x', nbins=5)
+    plt.legend(fontsize=legendsize, frameon=False)
+
+    plt.show()
+
     return eigenvector_zero, tau
 
 def evolution_compare(network_type, arguments, N, beta, betaeffect, d, seed, delay, index):
@@ -596,8 +618,8 @@ def evolution_compare(network_type, arguments, N, beta, betaeffect, d, seed, del
     s = np.sum(A[index_neighbor], 1)
     #plt.plot(t[:2000], np.mean(s * dyn_multi[:2000, index_neighbor], 1)/np.mean(s), '-', color='tab:red', linewidth=lw, alpha=alpha, label='multi')
     #plt.plot(t[:2000], np.mean(np.sum(A, 0) * dyn_multi[:2000, :], 1)/np.mean(np.sum(A, 0)), '-', color='tab:red', linewidth=lw, alpha=alpha, label='multi')
-    plt.plot(t[:2000], np.mean(dyn_multi[:2000, index_neighbor], 1), '-', color='tab:red', linewidth=lw, alpha=alpha, label='multi')
-    plt.plot(t[:2000], dyn_decouple[:2000, 1], '-', color='tab:blue', linewidth=lw, alpha=alpha, label='decouple')
+    #plt.plot(t[:2000], np.mean(dyn_multi[:2000, index_neighbor], 1), '-', color='tab:red', linewidth=lw, alpha=alpha, label='multi')
+    #plt.plot(t[:2000], dyn_decouple[:2000, 1], '-', color='tab:blue', linewidth=lw, alpha=alpha, label='decouple')
     plt.subplots_adjust(left=0.18, right=0.98, wspace=0.25, hspace=0.25, bottom=0.18, top=0.98)
     plt.xticks(fontsize=ticksize)
     plt.yticks(fontsize=ticksize)
@@ -608,9 +630,9 @@ def evolution_compare(network_type, arguments, N, beta, betaeffect, d, seed, del
 
     plt.show()
     #plt.close()
-
-    plot_diff(dyn_multi[:, A_index], xs[A_index], dt, 'tab:red', 'multi')
-    plot_diff(dyn_decouple[:, 0], xs_decouple[0], dt, 'tab:blue', 'decouple')
+    x_eff = np.mean(np.sum(A, 0) * dyn_multi[:, :], 1)/np.mean(np.sum(A, 0))
+    plot_diff(x_eff, x_eff[-1], dt, 'tab:red', 'multi')
+    plot_diff(dyn_decouple[:, 1], xs_decouple[1], dt, 'tab:blue', 'decouple')
     plt.subplots_adjust(left=0.18, right=0.98, wspace=0.25, hspace=0.25, bottom=0.18, top=0.98)
     plt.xticks(fontsize=ticksize)
     plt.yticks(fontsize=ticksize)
@@ -665,7 +687,7 @@ def eigenvalue_tau_mutual(tau, A, fx, fxt, gx_i, gx_j, mu_list, nu_list, des_fil
     print(tau, mu_max)
     data = np.hstack((tau, mu_max))
     df = pd.DataFrame(data.reshape(1, len(data)))
-    df.to_csv(des_file, index=None, header=None, mode='a')
+    #df.to_csv(des_file, index=None, header=None, mode='a')
     return None
 
 def parallel_eigenvalue_tau_mutual(network_type, N, beta, betaeffect, seed, d, tau_list):
@@ -678,7 +700,7 @@ def parallel_eigenvalue_tau_mutual(network_type, N, beta, betaeffect, seed, d, t
 
     """
 
-    mu_list = np.arange(-3, 1, 0.2)
+    mu_list = np.arange(-4, 1, 0.01)
     nu_list = np.arange(1, 10, 1)
     A, A_interaction, index_i, index_j, cum_index = network_generate(network_type, N, beta, betaeffect, seed, d)
     N_actual = np.size(A, 0)
@@ -687,7 +709,7 @@ def parallel_eigenvalue_tau_mutual(network_type, N, beta, betaeffect, seed, d, t
     t = np.arange(0, 1000, 0.01)
     xs = odeint(mutual_multi, initial_condition, t, args=(arguments, net_arguments))[-1]
 
-    des_file = '../data/mutual/' + network_type + '/' + f'N={N}_d={d}_beta={beta}_eigenvalue_tau.csv'
+    des_file = '../data/mutual/' + network_type + '/' + f'N={N}_d={d}_beta={beta}_seed={seed}_eigenvalue_tau.csv'
     mu_min = []
     B, C, D, E, H, K = arguments
     fx = (1-xs/K) * (2*xs/C-1)
@@ -757,14 +779,21 @@ beta_list = [4]
 beta_list = [1, 4]
 
 network_type = 'ER'
-network_type = 'SF'
-N = 100
-beta = 4
-betaeffect = 1
 seed = 0
-seed =[0, 0]
 d = 200
+
+network_type = 'SF'
+seed =[0, 0]
 d = [3, 99, 3]
 
+N = 100
+beta = 10
+betaeffect = 1
+index = 51
+delay = 0.1
+
 tau_list= np.arange(0.01, 0.4, 0.01)
-parallel_eigenvalue_tau_mutual(network_type, N, beta, betaeffect, seed, d, tau_list)
+tau_list = [0.1]
+#parallel_eigenvalue_tau_mutual(network_type, N, beta, betaeffect, seed, d, tau_list)
+evolution_compare(network_type, arguments, N, beta, betaeffect, d, seed, delay, index)
+#eigenvector = eigenvector_zeroeigenvalue(network_type, arguments, N, beta, betaeffect, d, seed)

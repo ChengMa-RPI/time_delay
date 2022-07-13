@@ -36,7 +36,8 @@ E = 0.9
 H = 0.1
 
 fs = 22
-ticksize = 14
+ticksize = 16
+legendsize = 14
 alpha = 0.8
 
 
@@ -127,29 +128,29 @@ def one_kmax(x, w, x_fix, arguments):
     dxdt = sum_f + sum_g
     return dxdt
 
-def evolution(network_type, N, beta, seed, arguments, d1, d2, d3, d=None):
+def evolution(network_type, N, beta, betaeffect, seed, arguments, d1, d2, d3, d=None):
     """TODO: Docstring for evolution.
 
     :arg1: TODO
     :returns: TODO
 
     """
-    A, A_interaction, index_i, index_j, cum_index = network_generate(network_type, N, beta, seed, d)
+    A, A_interaction, index_i, index_j, cum_index = network_generate(network_type, N, beta, betaeffect, seed, d)
     N = np.size(A, 0)
     initial_condition = np.ones(N) * 5 
-    t = np.arange(0, 500,0.001)
+    t = np.arange(0, 50,0.001)
     #dyn_all = ddeint(mutual_multi_delay_original, g, t, fargs=(d1, d2, d3, N, index_i, index_j, A_interaction, cum_index, arguments))
     t1 = time.time()
     dyn_all = ddeint_Cheng(mutual_multi_delay, initial_condition, t, *(d1, d2, d3, N, index_i, index_j, A_interaction, cum_index, arguments))
     t2 = time.time()
     print(t2-t1)
-    plt.plot(t, np.mean(dyn_all, 1), alpha = alpha)
+    plt.plot(t[5000:], dyn_all[5000:, np.argmax(np.sum(A>0, 0))], alpha = alpha)
     #plt.plot(t, dyn_all, alpha = alpha)
     plt.subplots_adjust(left=0.18, right=0.98, wspace=0.25, hspace=0.25, bottom=0.18, top=0.98)
     plt.xticks(fontsize=ticksize)
     plt.yticks(fontsize=ticksize)
     plt.xlabel('$t$', fontsize= fs)
-    plt.ylabel('$\\langle x \\rangle$', fontsize =fs)
+    plt.ylabel('$ x $', fontsize =fs)
     #plt.show()
     return dyn_all
 
@@ -210,15 +211,15 @@ def tau_eigenvalue(network_type, N, beta, betaeffect, nu_set, tau_set, arguments
     data = np.hstack((seed, tau_critical))
  
     column_name = [f'seed{i}' for i in range(np.size(seed))]
-    column_name.extend([ str(beta) for beta in beta_set])
+    column_name.extend([ str(beta) ])
 
     des = '../data/'
     if not os.path.exists(des):
         os.makedirs(des)
     if betaeffect:
-        des_file = des + network_type + f'_N={N}_d=' + str(d) + '_beta=' + str(beta) + '_logistic.csv'
+        des_file = des + network_type + f'_N={N}_d=' + str(d) + '_beta=' + str(beta) + '={beta}_logistic.csv'
     else:
-        des_file = des + network_type + f'_N={N}_d=' + str(d) + '_wt=' + str(beta) + '_logistic.csv'
+        des_file = des + network_type + f'_N={N}_d=' + str(d) + '_wt=' + str(beta) + '={beta}_logistic.csv'
 
     if not os.path.exists(des_file):
         df = pd.DataFrame(data.reshape(1, np.size(data)), columns = column_name)
@@ -353,37 +354,70 @@ def evolution_analysis(network_type, N, beta, betaeffect, seed, d, delay):
     xs_low, xs_high = stable_state(A, A_interaction, index_i, index_j, cum_index, arguments)
     beta_eff, _ = betaspace(A, [0])
     degree= np.sum(A>0, 0)
+    index = np.argmax(degree)
     N = np.size(A, 0)
     initial_condition = np.ones(N) * 5
     initial_condition = xs_high - 0.0001
-    t = np.arange(0, 50, 0.001)
-    #dyn_all = ddeint_Cheng(mutual_multi_delay, initial_condition, t, *(delay, 0, 0, N, index_i, index_j, A_interaction, cum_index, arguments))
-    dyn_all = ddeint_Cheng(mutual_single_delay, initial_condition, t, *(delay, 0, 0, N, [np.argmax(degree)], index_i, index_j, A_interaction, cum_index, arguments))
-    w = np.sum(A[np.argmax(degree)])
-    initial_condition = np.array([xs_high.max()])
-    xs_eff = fsolve(mutual_1D, initial_condition, args=(0, beta_eff, arguments))
+    dt = 0.001
+    t = np.arange(0, 50, dt)
+    t1 = time.time()
+    dyn_multi = ddeint_Cheng(mutual_multi_delay, initial_condition, t, *(delay, 0, 0, N, index_i, index_j, A_interaction, cum_index, arguments))
+    t2 = time.time()
+    plot_diff(dyn_multi, xs_high, dt, 'tab:red', 'multi-delay')
+    dyn_single = ddeint_Cheng(mutual_single_delay, initial_condition, t, *(delay, 0, 0, N, [index], index_i, index_j, A_interaction, cum_index, arguments))
+    t3 = time.time()
+    plot_diff(dyn_single[:, index], xs_high[index], dt, 'tab:blue', 'single-delay')
+    w = np.sum(A[index])
+    #xs_eff = fsolve(mutual_1D, initial_condition, args=(0, beta_eff, arguments))
     xs_eff = np.mean(xs_high)
-    print(xs_eff)
-    #dyn_all = ddeint_Cheng(one_single_delay, initial_condition, t, *(delay, 0, 0, w, xs_eff, arguments))
-    #xs_high = ddeint_Cheng(one_single_delay, initial_condition, t, *(0, 0, 0, w, xs_eff, arguments))[-1]
+    #xs_eff = np.mean(np.setdiff1d(xs_high, xs_high[index]))
+    xs_high_max = ddeint_Cheng(one_single_delay, np.array([xs_high[index]]), t, *(0, 0, 0, w, xs_eff, arguments))[-1]
+    initial_condition = np.ones(1) * 5
+    initial_condition = xs_high_max - 0.0001
 
-    diff = dyn_all - xs_high
-    peaks = []
-    peaks_index = []
-    for i in diff.transpose():
+    t4 = time.time()
+    dyn_one = ddeint_Cheng(one_single_delay, initial_condition, t, *(delay, 0, 0, w, xs_eff, arguments))[:, 0]
+    t5 = time.time()
+    print(t2-t1, t3-t2, t5-t4)
+    plot_diff(dyn_one, xs_high_max, dt, 'tab:green', 'one-component')
+    plt.subplots_adjust(left=0.2, right=0.98, wspace=0.25, hspace=0.25, bottom=0.18, top=0.98)
+    plt.xticks(fontsize=ticksize)
+    plt.yticks(fontsize=ticksize)
+    plt.xlabel('$t$', fontsize= fs)
+    plt.ylabel('$A_{x}$', fontsize =fs)
+    plt.legend(frameon=False, fontsize=legendsize, loc='lower left') 
+    plt.show()
 
-        peak_index, _ = list(find_peaks(i))
-        peak = i[peak_index]
+    return dyn_multi, xs_high
+
+def plot_diff(dyn, xs, dt, color, label):
+    """TODO: Docstring for plot_diff.
+
+    :dyn: TODO
+    :xs: TODO
+    :returns: TODO
+
+    """
+
+    diff = (dyn - xs).transpose()
+    size = 1 if np.ndim(diff) == 1 else np.shape(diff)[0]
+    for i in range(size):
+        if size>1:
+            diff_i = diff[i]
+        else:
+            diff_i = diff
+
+        peak_index, _ = list(find_peaks(diff_i))
+        peak = diff_i[peak_index]
         positive_index = np.where(peak>0)[0]
         peak_positive = peak[positive_index]
         peak_index_positive = peak_index[positive_index]
+        if i +1 < size:
+            plt.semilogy(peak_index_positive*dt, peak_positive, '.', color=color, alpha = alpha)
+        else:
+            plt.semilogy(peak_index_positive*dt, peak_positive, '.', color=color, label=label, alpha = alpha)
 
-        peaks.append(peak_positive)
-        peaks_index.append(peak_index_positive)
-    #plt.loglog(degree, peaks_last, 'o')
-        plt.semilogy(peak_index_positive, peak_positive, '.', color='r')
-
-    return degree, w, dyn_all, diff, peaks, peaks_index
+    return None
 
 def tau_kmax(network_type, N, d, beta, betaeffect, arguments, seed_list):
     """TODO: Docstring for tau_kmax.
@@ -431,9 +465,59 @@ def tau_kmax(network_type, N, d, beta, betaeffect, arguments, seed_list):
         else:
             df = pd.DataFrame(data.reshape(1, np.size(data)))
             df.to_csv(des_file, index=None, header=None, mode='a')
-    print(seed, tau)
+        print(seed, tau)
 
     return tau_list, degree_max
+
+def tau_decouple(network_type, N, d, beta, betaeffect, arguments, seed_list):
+    """TODO: Docstring for tau_kmax.
+
+    :network_type: TODO
+    :N: TODO
+    :beta: TODO
+    :betaeffect: TODO
+    :returns: TODO
+
+    """
+    B, C, D, E, H, K = arguments
+    des = '../data/'
+    if not os.path.exists(des):
+        os.makedirs(des)
+    if betaeffect:
+        des_file = des + network_type + f'_N={N}_d=' + str(d) + '_decouple_beta=' + str(beta) + '_logistic.csv'
+    else:
+        des_file = des + network_type + f'_N={N}_d=' + str(d) + '_decouple_wt=' + str(beta) + '_logistic.csv'
+
+    for seed in seed_list:
+        A, A_interaction, index_i, index_j, cum_index = network_generate(network_type, N, beta, betaeffect, seed, d)
+        xs_low, xs_high = stable_state(A, A_interaction, index_i, index_j, cum_index, arguments)
+        degree = np.sum(A>0, 0)
+        x_fix = np.mean(xs_high)
+        index_list = np.argsort(degree)[-10:]
+        tau = []
+        for index in index_list:
+            w = np.sum(A[index])
+            xs = ddeint_Cheng(one_single_delay, np.ones(1)*5, np.arange(0, 100, 0.01), *(0, 0, 0, w, x_fix, arguments))[-1]
+            #xs = fsolve(one_kmax, np.ones(1) * 10, args=(w, x_fix, arguments))
+            P =  - (w * x_fix)/(D + E * xs + H * x_fix) + (w * E * xs * x_fix)/(D + E * xs + H * x_fix)**2 -(1-xs/K) * (2*xs/C-1)
+            Q = xs/K*(xs/C-1)
+            if abs(P/Q)<=1:
+                tau.append( np.arccos(-P/Q) /Q/np.sin(np.arccos(-P/Q)) )
+        tau = np.min(tau)
+        data = np.hstack((seed, degree.max(), tau))
+     
+        column_name = [f'seed{i}' for i in range(np.size(seed))]
+        column_name.extend(['kmax', str(beta) ])
+
+        if not os.path.exists(des_file):
+            df = pd.DataFrame(data.reshape(1, np.size(data)), columns = column_name)
+            df.to_csv(des_file, index=None, mode='a')
+        else:
+            df = pd.DataFrame(data.reshape(1, np.size(data)))
+            df.to_csv(des_file, index=None, header=None, mode='a')
+        print(seed, tau)
+
+    return None
 
 def evolution_single(network_type, N, beta, betaeffect, seed, arguments, d1, d2, d3, d):
     """TODO: Docstring for evolution.
@@ -450,7 +534,9 @@ def evolution_single(network_type, N, beta, betaeffect, seed, arguments, d1, d2,
     t1 = time.time()
 
     degree= np.sum(A>0, 0)
-    w = np.sum(A[np.argmax(degree)])
+    index = np.argmax(degree)
+    w = np.sum(A[index])
+    initial_condition = np.array([xs_high[index]])
     dyn_all = ddeint_Cheng(one_single_delay, initial_condition, t, *(d1, d2, d3, w, x_fix, arguments))
     
     xs = ddeint_Cheng(one_single_delay, initial_condition, t, *(0, 0, 0, w, x_fix, arguments))[-1]
@@ -469,7 +555,7 @@ def evolution_single(network_type, N, beta, betaeffect, seed, arguments, d1, d2,
     plt.xticks(fontsize=ticksize)
     plt.yticks(fontsize=ticksize)
     plt.xlabel('$t$', fontsize= fs)
-    plt.ylabel('$\\langle x \\rangle$', fontsize =fs)
+    plt.ylabel('$ x $', fontsize =fs)
     #plt.show()
     return dyn_all, tau
 
@@ -507,7 +593,7 @@ gamma = [3]
 d_list = np.hstack((np.meshgrid(kmin, gamma)[0], np.meshgrid(kmin, gamma)[1]))
 d_list = [[3, 2500-2, 1]]
 seed2 = [0]
-seed1 = np.arange(100).tolist()
+seed1 = np.arange(200).tolist()
 seed_list = np.hstack((np.meshgrid(seed1, seed2)[0], np.meshgrid(seed1, seed2)[1])).tolist()
 seed_list = np.vstack((seed1, seed1)).transpose().tolist()
 
@@ -543,16 +629,18 @@ t2 = time.time()
 print(t2 - t1)
 '''
 
-#dyn_all = evolution(network_type, N, beta, seed, arguments, 0.268, 0, 0, d)
 
-delay = 0.7
+delay = 0.27
 N = 1000
 betaeffect = 0
 beta = 0.1
-beta_list = [0.05, 0.1, 0.2]
+beta_list = [0.01]
 d = [3, 999, 3]
 seed = [93, 93]
-#dyn = evolution_analysis(network_type, N, beta, betaeffect, seed, d, delay)
+#dyn_multi, xs_multi = evolution_analysis(network_type, N, beta, betaeffect, seed, d, delay)
+#dyn_all = evolution(network_type, N, beta, betaeffect, seed, arguments, delay, 0, 0, d)
 for beta in beta_list:
     tau = tau_kmax(network_type, N, d, beta, betaeffect, arguments, seed_list)
+    #tau = tau_decouple(network_type, N, d, beta, betaeffect, arguments, seed_list)
+
 #dyn, tau = evolution_single(network_type, N, beta, betaeffect, seed, arguments, delay, 0, 0, d)

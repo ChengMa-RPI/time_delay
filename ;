@@ -21,7 +21,6 @@ from mutual_framework import network_generate, betaspace
 from kcore_KNN_deg import group_index_from_feature_Kmeans, feature_from_network_topology
 from kcore_KNN_degree_partition import mutual_multi, PPI_multi, BDP_multi, SIS_multi, CW_multi, genereg_multi, reducednet_effstate, neighborshell_given_core
 import scipy.stats as stats
-import time
 
 B = 0.1
 C = 1
@@ -45,8 +44,8 @@ b = 1
 
 
 fs = 24
-ticksize = 18
-labelsize = 30
+ticksize = 14
+labelsize=18
 anno_size = 14
 subtitlesize = 15
 legendsize= 16
@@ -751,27 +750,7 @@ def critical_boundary(dynamics, network_type, m, hetero_type, critical_type, thr
 
     return kmean, h1, h2, wc
 
-def df_select_d_sort_seed(d_df, seed_df, d_list):
-    index_select = []
-    if type(d_df[0]) == str:
-        d_df = [eval(i) for i in d_df]
-        seed_df = [eval(i) for i in seed_df]
-    for d_i in d_list:
-        index_i = []
-        seed_i = []
-        for (i, d_df_i), seed_df_i in zip(enumerate(d_df), seed_df):
-            if d_df_i == d_i:
-                index_i.append(i) 
-                if type(seed_df_i) == list:
-                    seed_i.append(seed_df_i[0])
-                else:
-                    seed_i.append(seed_df_i)
-        index_sort = np.argsort(seed_i)
-        index_select.extend(np.array(index_i)[index_sort])
-    return index_select
-
-
-def df_wc_N_m(dynamics, network_type_list, d_list_list, m_list, critical_type_list, threshold_value_list):
+def df_wc_N_m(dynamics, network_type, m_list, critical_type, threshold_value_list):
     """TODO: Docstring for critical_point_samples.
 
     :network_type: TODO
@@ -781,80 +760,51 @@ def df_wc_N_m(dynamics, network_type_list, d_list_list, m_list, critical_type_li
     :returns: TODO
     """
     df = pd.DataFrame()
-    for network_type, d_list in zip(network_type_list, d_list_list):
-        des = '../data/' + dynamics  + '/' + network_type + '/xs_bifurcation/'
-        for critical_type, threshold_values in zip(critical_type_list, threshold_value_list):
-            if critical_type == 'survival_ratio':
-                R_type = 's='
-            else:
-                R_type = 'y='
-            for threshold_value in threshold_values:
-                df_i = pd.DataFrame()
-                des_multi_file = des + 'wc_multi/critical_type=' + critical_type + f'_threshold_value={threshold_value}.csv'
-                des_multi_file = des + 'wc_multi_rdw=0.01/critical_type=' + critical_type + f'_threshold_value={threshold_value}.csv'
-                data_multi = pd.read_csv(des_multi_file, header=None)
-                d_multi, seed_multi = np.array(data_multi.iloc[:, :2]).transpose()
-                index_multi = df_select_d_sort_seed(d_multi, seed_multi, d_list)
-                data_multi = data_multi.iloc[index_multi]
-                d_multi, seed_multi, kmean_multi, h1_multi, h2, wc_multi = np.array(data_multi).transpose()
-                beta_multi = h1_multi + kmean_multi
-                df_i['N'] = wc_multi
-                df_i['network'] = network_type
-                df_i['h1'] = h1_multi
-                df_i['kmean'] = kmean_multi
-                df_i['beta_log'] = np.log10(np.array(beta_multi, float) ) 
-                df_i['R'] = R_type + str(threshold_value)
-                df_i['d'] = d_multi
-                df_i['seed'] = seed_multi
-                for m in m_list:
-                    des_group_file = des + 'wc_group/critical_type=' + critical_type + f'_threshold_value={threshold_value}_m={m}.csv'
-                    des_group_file = des + 'wc_group_rdw=0.01/critical_type=' + critical_type + f'_threshold_value={threshold_value}_m={m}.csv'
-                    data_group = pd.read_csv(des_group_file, header=None)
-                    d_group, seed_group = np.array(data_group.iloc[:, :2]).transpose()
-                    index_group = df_select_d_sort_seed(d_group, seed_group, d_list)
-                    data_group = data_group.iloc[index_group]
-                    d_group, seed_group, kmean_group, h1_group, h2, wc_group = np.array(data_group).transpose()
-                    df_i[m] = wc_group
-                df = pd.concat((df, df_i))
+    des = '../data/' + dynamics  + '/' + network_type + '/xs_bifurcation/'
+    for threshold_value in threshold_value_list:
+        df_i = pd.DataFrame()
+        des_multi_file = des + 'wc_multi/critical_type=' + critical_type + f'_threshold_value={threshold_value}.csv'
+        data_multi = pd.read_csv(des_multi_file, header=None)
+        seed, d, kmean_multi, h1_multi, h2, wc_multi = np.array(data_multi.loc[:, :]).transpose()
+        multi_sort = np.argsort(h1_multi)
+        wc_multi = wc_multi[multi_sort]
+        h1_multi = h1_multi[multi_sort]
+        kmean_multi = kmean_multi[multi_sort]
+        beta_multi = h1_multi + kmean_multi
+        df_i['N'] = wc_multi
+        df_i['h1'] = h1_multi
+        df_i['kmean'] = kmean_multi
+        df_i['beta_log'] = np.log10(np.array(beta_multi, float) ) 
+        df_i['$R_y$'] = threshold_value
+        for m in m_list:
+            des_group_file = des + 'wc_group/critical_type=' + critical_type + f'_threshold_value={threshold_value}_m={m}.csv'
+            data_group = pd.read_csv(des_group_file, header=None)
+            d, seed, kmean_group, h1_group, h2, wc_group = np.array(data_group.loc[:, :]).transpose()
+            group_sort = np.argsort(h1_group)
+            wc_group = wc_group[group_sort]
+            df_i[m] = wc_group
+        df = pd.concat((df, df_i))
     return df 
-
-def facet_scatter(x, y, c, **kwargs):
-    kwargs.pop('color')
-    plt.scatter(x, y, c=c, **kwargs)
-
-def connect_line(x1, x2, y1, y2, **kwargs):
-    plt.plot([x1, x2], [y1, y2], **kwargs)
-
-def change_title_name(ax, title_letter):
-    get_title = ax.get_title().split('|')
-    R_type =  get_title[0].split('=')[-2].strip(' ') 
-    R_value = get_title[0].split('=')[-1].strip(' ')
-    rename_title = '$R_' + R_type + ' = ' + R_value + '$ ' + '|' + get_title[1]
-    R_sci = [int(i) for i in '{:.0e}'.format(float(R_value)).split('e')]
-    if R_type == 'y':
-        color='tab:blue'
-    else:
-        color = 'tab:green'
-    ax.set_title(f'({title_letter})' + '  ' + rename_title, size=subtitlesize*0.85, color=color)
-    return None
-
-def facetgrid_wc_N_m_list(dynamics, network_type_list, d_list_list, m_list, critical_type_list, threshold_value_list):
+    
+def facetgrid_wc_N_m_list(dynamics, network_type, m_list, critical_type, threshold_value_list):
     """TODO: Docstring for facetgrid_wc_N_m.
 
     :df: TODO
     :returns: TODO
 
     """
-    df = df_wc_N_m(dynamics, network_type_list, d_list_list, m_list, critical_type_list, threshold_value_list)
-
-    df = pd.melt(df, id_vars=['N', 'R', 'beta_log', 'h1', 'kmean'], value_vars=m_list, var_name='m', value_name='wc_group' )
+    df = df_wc_N_m(dynamics, network_type, m_list, critical_type, threshold_value_list)
+    df = pd.melt(df, id_vars=['N', '$R_y$', 'beta_log', 'h1', 'kmean'], value_vars=m_list, var_name='m', value_name='wc_group' )
     df['relative_error'] = np.array(np.abs(df['N'] - df['wc_group']) / (df['N'] + df['wc_group']), float )  
-    df_error = df.pivot_table(values='relative_error', index=['m'], columns=['R'], aggfunc=np.mean)
-    relative_error = [df_error.loc[j, critical_type[0] + f'={i}'] for critical_type, threshold_values in zip(critical_type_list, threshold_value_list) for i in threshold_values for j in m_list]
+    df_error = df.pivot_table(values='relative_error', index=['m'], columns=['$R_y$'], aggfunc=np.mean)
+    relative_error = [df_error.loc[j, i] for i in threshold_value_list for j in m_list]
 
     wc_together = np.array(df[['N', 'wc_group']], float)
 
-    g = sns.FacetGrid(df, row='R', col='m')
+    g = sns.FacetGrid(df, row='$R_y$', col='m')
+    def facet_scatter(x, y, c, **kwargs):
+        kwargs.pop('color')
+        plt.scatter(x, y, c=c, **kwargs)
     vmin, vmax = np.min(df['beta_log']), np.max(df['beta_log'])
     cmap = sns.color_palette('flare', as_cmap=True)
     g = g.map(facet_scatter, 'N', 'wc_group', 'beta_log', alpha=0.1, vmin=vmin, vmax=vmax, cmap=cmap)
@@ -863,419 +813,77 @@ def facetgrid_wc_N_m_list(dynamics, network_type_list, d_list_list, m_list, crit
     g.fig.colorbar(points, cax=cax)
     cbar_ticks = cax.get_yticks()
     cax.get_yaxis().set_ticklabels(np.array(10**(cbar_ticks), int), size=ticksize)
-    cax.set_ylabel('$\\beta(w=1)$', fontsize=labelsize)
+    cax.set_ylabel('$\\beta(m=1)$', fontsize=labelsize)
+    g.set_titles(size=subtitlesize)
 
-    axes = g.fig.axes
-    letters = list('abcdefghijklmnopqrstuvwxyz')[:int(len(axes)**0.5)]
-    numbers = np.arange(1, int(len(axes)**0.5)+1).tolist()
-    title_list = itertools.product(numbers, letters)
-
-    for ax, error, title_i in zip(axes, relative_error, title_list):
+    for ax, error in zip(g.fig.axes, relative_error):
         ax.plot([np.min(wc_together), np.max(wc_together)], [np.min(wc_together), np.max(wc_together)], '--k', alpha=0.3)
         ax.text(0.6 * np.max(wc_together), 0.2 * np.max(wc_together), 'Err=' + '{:#.2g}'.format(error), size=anno_size)
         ax.tick_params(axis='both', which='major', labelsize=ticksize) 
-        change_title_name(ax, title_i[1] + str(title_i[0]))
     xlabel = '$ w_c^{(original)} $'
     ylabel = '$ w_c^{(reduction)} $'
     g.set_axis_labels('', '')
     g.fig.text(x=0.01, y=0.5, verticalalignment='center', s=ylabel, size=labelsize, rotation=90)
     g.fig.text(x=0.5, y=0.01, horizontalalignment='center', s=xlabel, size=labelsize)
     plt.subplots_adjust(left=0.1, right=0.85, wspace=0.25, hspace=0.25, bottom=0.1, top=0.95)
-    save_des = '../manuscript/dimension_reduction_v2_020322/' + dynamics + '_' + ''.join(network_type_list) +  '_wc_N_m.png'
-    plt.savefig(save_des, format='png')
-    plt.close()
+    save_des = '../manuscript/dimension_reduction_v1_111021/' + dynamics + '_' + network_type +  '_beta_pres_critical_point/' +   dynamics + '_' + network_type + '_' + plot_type + '_' + critical_type + f'={threshold_value}.png'
+    #plt.savefig(save_des, format='png')
+    #plt.close()
     #plt.show()
-    return None
 
-def facetgrid_beta_N_m_list(dynamics, network_type_list, d_list_list, m_list, critical_type_list, threshold_value_list):
+    return df
+
+def facetgrid_beta_N_m_list(dynamics, network_type, m_list, critical_type, threshold_value_list):
     """TODO: Docstring for facetgrid_wc_N_m.
 
     :df: TODO
     :returns: TODO
 
     """
-    df = df_wc_N_m(dynamics, network_type_list, d_list_list, m_list, critical_type_list, threshold_value_list)
-    df = df.rename(columns={i: str(i) for i in m_list}) # change column name type
-    m_new = [str(i) for i in m_list[1:]] + ['N']
-    df = pd.melt(df, id_vars=['1', 'R', 'beta_log', 'h1', 'kmean', 'network'], value_vars=m_new, var_name='m', value_name='wc_group' )
+    df = df_wc_N_m(dynamics, network_type, m_list, critical_type, threshold_value_list)
+    df = df.rename(columns={'N': N, 1: '1'})
+    df = pd.melt(df, id_vars=['1', '$R_y$', 'beta_log', 'h1', 'kmean'], value_vars=[N] + m_list[1:], var_name='m', value_name='wc_group' )
     df['h1_1'] = df['h1'] * df['1']
     df['kmean_1'] = df['kmean'] * df['1']
-    df['h1_m'] = df['h1'] * df['wc_group']
-    df['kmean_m'] = df['kmean'] * df['wc_group']
-    beta_approx = np.mean( (df['h1_1'] + df['kmean_1']) )
-    df['distance'] = np.array(np.abs(df['1'] - df['wc_group'])*  (df['h1']** 2 + df['kmean']**2 ) **0.5/beta_approx , float)
-    # calculate distance -- mean and std
-    df_distance = df.pivot_table(values='distance', index=['m'], columns=['R'], aggfunc=np.mean)
-    df_std = df.pivot_table(values='distance', index=['m'], columns=['R'], aggfunc=np.std)
-    distance_mean = [df_distance.loc[j, critical_type[0] + f'={i}'] for critical_type, threshold_values in zip(critical_type_list, threshold_value_list) for i in threshold_values for j in m_new ]
-    distance_std = [df_std.loc[j, critical_type[0] + f'={i}'] for critical_type, threshold_values in zip(critical_type_list, threshold_value_list) for i in threshold_values for j in m_new ]
+    #df['relative_error'] = np.array(np.abs(df['wc_multi'] - df['wc_group']) / (df['wc_multi'] + df['wc_group']), float )  
+    #df_error = df.pivot_table(values='relative_error', index=['m'], columns=['$R_y$'], aggfunc=np.mean)
+    #relative_error = [df_error.loc[j, i] for i in threshold_value_list for j in m_list]
 
-    """
-    g = sns.FacetGrid(df, row='R', col='m', hue='network')
-    g = g.map(plt.scatter, 'kmean_1', 'h1_1', s=10, alpha=0.1)
-    g = g.map(plt.scatter, 'kmean_m', 'h1_m', s=10, alpha=0.1)
-    """
-    g = sns.FacetGrid(df, row='R', col='m')
+    wc_together = np.array(df[['1', 'wc_group']], float)
+
+    g = sns.FacetGrid(df, row='$R_y$', col='m')
+    def facet_scatter(x, y, c, **kwargs):
+        kwargs.pop('color')
+        plt.scatter(x, y, c=c, **kwargs)
     vmin, vmax = np.min(df['beta_log']), np.max(df['beta_log'])
     cmap = sns.color_palette('flare', as_cmap=True)
-    g = g.map(facet_scatter, 'kmean_1', 'h1_1', 'beta_log', alpha=0.1, vmin=vmin, vmax=vmax, cmap=cmap)
-    g = g.map(facet_scatter, 'kmean_m', 'h1_m', 'beta_log', alpha=0.1, vmin=vmin, vmax=vmax, cmap=cmap)
-    g = g.map(connect_line, 'kmean_m', 'kmean_1',  'h1_m', 'h1_1', linestyle='--', linewidth=0.5, color='k', alpha=0.05)
+    g = g.map(facet_scatter, 'wc_multi', 'wc_group', 'beta_log', alpha=0.1, vmin=vmin, vmax=vmax, cmap=cmap)
     cax = g.fig.add_axes([0.89, 0.2, 0.02, 0.6])
     points = plt.scatter([], [], c=[], vmin=vmin, vmax=vmax, cmap=cmap)
     g.fig.colorbar(points, cax=cax)
     cbar_ticks = cax.get_yticks()
     cax.get_yaxis().set_ticklabels(np.array(10**(cbar_ticks), int), size=ticksize)
-    cax.set_ylabel('$\\beta(w=1)$', fontsize=labelsize)
+    cax.set_ylabel('$\\beta(m=1)$', fontsize=labelsize)
+    g.set_titles(size=subtitlesize)
 
-    x_max = np.max(np.array(df[['kmean_1', 'kmean_m']]) ) 
-    y_max = np.max(np.array(df[['h1_1', 'h1_m']]) ) 
-    axes = g.fig.axes
-    letters = list('abcdefghijklmnopqrstuvwxyz')[:int(len(axes)**0.5)]
-    numbers = np.arange(1, int(len(axes)**0.5) + 1).tolist()
-    title_list = itertools.product(numbers, letters)
-
-    for ax, d_i, std_i, title_i in zip(axes, distance_mean, distance_std, title_list):
-        di_str = '{:#.2g}'.format(d_i) 
-        decimal_num = len(''.join(di_str.split('.')[-1]))
-        ax.text(0.45 * x_max, 0.8 * y_max, '$l=$' + di_str + '$\\pm ${0:#.{1}f}'.format(std_i, decimal_num), size=anno_size)
+    for ax, error in zip(g.fig.axes, relative_error):
+        ax.plot([np.min(wc_together), np.max(wc_together)], [np.min(wc_together), np.max(wc_together)], '--k', alpha=0.3)
+        ax.text(0.6 * np.max(wc_together), 0.2 * np.max(wc_together), 'Err=' + '{:#.2g}'.format(error), size=anno_size)
         ax.tick_params(axis='both', which='major', labelsize=ticksize) 
-        change_title_name(ax, title_i[1] + str(title_i[0]))
-    xlabel = '$ \\langle k \\rangle $'
-    ylabel = '$ h $'
+    xlabel = '$ w_c^{(original)} $'
+    ylabel = '$ w_c^{(reduction)} $'
     g.set_axis_labels('', '')
     g.fig.text(x=0.01, y=0.5, verticalalignment='center', s=ylabel, size=labelsize, rotation=90)
     g.fig.text(x=0.5, y=0.01, horizontalalignment='center', s=xlabel, size=labelsize)
     plt.subplots_adjust(left=0.1, right=0.85, wspace=0.25, hspace=0.25, bottom=0.1, top=0.95)
-    save_des = '../manuscript/dimension_reduction_v2_020322/' + dynamics + '_' + ''.join(network_type_list) + '_beta_wc_m_1.png'
-    plt.savefig(save_des, format='png')
-    plt.close()
+    save_des = '../manuscript/dimension_reduction_v1_111021/' + dynamics + '_' + network_type +  '_beta_pres_critical_point/' +   dynamics + '_' + network_type + '_' + plot_type + '_' + critical_type + f'={threshold_value}.png'
+    #plt.savefig(save_des, format='png')
+    #plt.close()
     #plt.show()
-
-    return None
-
-def df_distance_error(dynamics, network_type_list, d_list_list, m_list, critical_type_list, threshold_value_list):
-    """TODO: Docstring for similarity_N_m.
-
-    :dynamics: TODO
-    :network_type: TODO
-    :d: TODO
-    :seed: TODO
-    :: TODO
-    :returns: TODO
-
-    """
-    df = df_wc_N_m(dynamics, network_type_list, d_list_list, m_list, critical_type_list, threshold_value_list)
-    df = df.rename(columns={i: str(i) for i in m_list}) # change column name type
-    m_new = [str(i) for i in m_list]
-    beta_approx = ((df['h1'] + df['kmean']) * df['1']).mean()
-    df = pd.melt(df, id_vars=['N', 'R', 'd', 'seed', 'beta_log', 'h1', 'kmean'], value_vars=m_new, var_name='m', value_name='wc_group' )
-    df['h1_N'] = df['h1'] * df['N']
-    df['kmean_N'] = df['kmean'] * df['N']
-    df['h1_m'] = df['h1'] * df['wc_group']
-    df['kmean_m'] = df['kmean'] * df['wc_group']
-    df['distance'] = np.array(np.abs(df['N'] - df['wc_group'])*  (df['h1']** 2 + df['kmean']**2 ) **0.5/beta_approx , float)
-    df['error'] = np.array(np.abs(df['N'] - df['wc_group'])/ (df['N'] + df['wc_group'] ), float)
-    #df['distance'] = np.array((df['N'] - df['wc_group'])*  (df['h1']** 2 + df['kmean']**2 ) **0.5/beta_approx , float)
-    #df['error'] = np.array((df['N'] - df['wc_group'])/ (df['N'] + df['wc_group'] ), float)
-    """
-    "parse gamma and kmin"
-    kmin_list, gamma_list = [], []
-    for i in df['d']:
-        str2list = i[1:-1].split(',')
-        gamma = float(str2list[0])
-        kmin = int(str2list[-1])
-        gamma_list.append(gamma)
-        kmin_list.append(kmin)
-    df['kmin'] = kmin_list
-    df['gamma'] = gamma_list
-    """
 
     return df
 
-def plot_ave_distance_error_m(dynamics, network_type, m_list, critical_type_list, threshold_value_list, plot_type):
-    """TODO: Docstring for plot_ave_distance_error_m.
-
-    :arg1: TODO
-    :returns: TODO
-
-    """
-    df = df_distance_error(dynamics, network_type, m_list, critical_type_list, threshold_value_list)
-    plot_df = df.pivot_table(values=plot_type, index=['m'], columns=['R'], aggfunc=np.mean)
-    if plot_type == 'distance':
-        ylabel = 'distance $\\langle l \\rangle $'
-    else:
-        ylabel = 'Error'
-
-    plot_df.index = plot_df.index.astype(int)
-    plot_df.reset_index(inplace=True)
-    plot_df.columns.name = None
-    plot_df = pd.melt(plot_df, id_vars=['m'], value_vars=plot_df.columns[1:], var_name='R', value_name=plot_type)
-    g = sns.scatterplot(data=plot_df, x='m', y=plot_type, hue='R', style='R', s=100)
-    legend_markers, legend_labels = g.get_legend_handles_labels() # get legend makers and labels 
-    g.legend(legend_markers, [f'$R_{legend_i}$' for legend_i in legend_labels], frameon=False, markerscale=1.2, fontsize=14)
-    g.set(xscale='log', yscale='log')
-    #g.yaxis.set_major_locator(mpl.ticker.LogLocator(subs=(1, 2, 5)))
-    #g.yaxis.set_major_formatter(mpl.ticker.ScalarFormatter())
-    #g.yaxis.set_minor_locator(mpl.ticker.NullLocator())
-    g.yaxis.set_minor_formatter(mpl.ticker.NullFormatter())
-    plt.tick_params(labelsize=16)
-    plt.subplots_adjust(left=0.15, right=0.95, wspace=0.25, hspace=0.25, bottom=0.15, top=0.95)
-    plt.xlabel('$m$', fontsize=18)
-    plt.ylabel(ylabel, fontsize=18)
-    save_des = '../manuscript/dimension_reduction_v2_020322/' + dynamics + '_' + network_type + '_' + plot_type +  '_m.png'
-    plt.savefig(save_des, format='png')
-    plt.close()
-    #plt.show()
-    return None
-
-def plot_std_distance_error_m(dynamics, network_type, m_list, critical_type_list, threshold_value_list, plot_type):
-    """TODO: Docstring for plot_ave_distance_error_m.
-
-    :arg1: TODO
-    :returns: TODO
-
-    """
-    if plot_type == 'distance':
-        ylabel = 'distance $\\langle l \\rangle $'
-    else:
-        ylabel = 'Error'
-    df = df_distance_error(dynamics, network_type, m_list, critical_type_list, threshold_value_list)
-    df['m'] = df['m'].astype(int)
-    df_stat = df[['m', plot_type]].groupby('m').describe().sort_values(by=['m'])
-    std = df_stat[(plot_type, 'std')]
-    mean = df_stat[(plot_type, 'mean')]
-    g = sns.lineplot(data=df, x='m', y=plot_type, ci=None)
-    g.fill_between(m_list, mean-std, mean+std, alpha=0.3)
-    g.set(xscale='log')
-
-    plt.tick_params(labelsize=16)
-    plt.subplots_adjust(left=0.15, right=0.95, wspace=0.25, hspace=0.25, bottom=0.15, top=0.95)
-    plt.xlabel('$m$', fontsize=18)
-    plt.ylabel(ylabel, fontsize=18)
-    save_des = '../manuscript/dimension_reduction_v2_020322/' + dynamics + '_' + network_type + '_' + plot_type +  '_m_std.png'
-    plt.savefig(save_des, format='png')
-    plt.close()
-    #plt.show()
-    return None
-
-def facetgrid_distance_error_m(dynamics_list, network_type, m_list, critical_type_list, threshold_value_list_list):
-    """TODO: Docstring for facetgrid_distance_error_m.
-
-    :dynamics: TODO
-    :network_type: TODO
-    :returns: TODO
-
-    """
-    df = pd.DataFrame()
-    for dynamics, threshold_value_list in zip(dynamics_list, threshold_value_list_list):
-        df_dynamics = df_distance_error(dynamics, network_type, m_list, critical_type_list, threshold_value_list)[['R', 'm', 'distance', 'error']]
-        df_dynamics['dynamics'] = dynamics
-        df = pd.concat((df, df_dynamics))
-    df = df.melt(id_vars=['dynamics', 'R', 'm'], value_vars=['distance', 'error'], var_name='plot_type', value_name='dis_err')
-    df = df.pivot_table(values='dis_err', index=['m'], columns=['dynamics', 'R', 'plot_type'], aggfunc=np.mean)
-    df.reset_index(inplace=True)
-    df = pd.melt(df, id_vars=['m'], value_name='dis_err')
-    df['m'] = df['m'].astype(int)
-    df['dis_err'] = df['dis_err'].astype(float)
-
-    g = sns.FacetGrid(df, row='plot_type', col='dynamics', hue='R', legend_out=False)
-    g.map(sns.scatterplot, 'm', 'dis_err', style=df['R'])
-    axes = g.fig.axes
-    letters = list('abcdefghijklmnopqrstuvwxyz')[:int(len(axes))]
-    numbers = np.arange(1, int(len(axes))+1).tolist()
-    title_list = itertools.product(numbers, letters)
-    for ax, title_i in zip(axes, letters):
-        get_title = ax.get_title().split('|')
-        plot_type =  get_title[0].split('=')[-1].strip(' ') 
-        dynamics_name = get_title[1].split('=')[-1].strip(' ')
-        rename_title = dynamics_name + ' | ' + plot_type  
-        ax.set_title(f'({title_i})' + '  ' + rename_title, size=subtitlesize*0.8)
-        ax.tick_params(axis='both', which='major', labelsize=ticksize*0.8) 
-    g.set(xscale='log', yscale='log')
-    xlabel = '$m$'
-    ylabel = 'similarity value'
-    g.set_axis_labels('', '')
-    g.fig.text(x=0.01, y=0.5, verticalalignment='center', s=ylabel, size=labelsize*0.8, rotation=90)
-    g.fig.text(x=0.5, y=0.01, horizontalalignment='center', s=xlabel, size=labelsize*0.8)
-    plt.subplots_adjust(left=0.15, right=0.90, wspace=0.25, hspace=0.25, bottom=0.15, top=0.95)
-    save_des = '../manuscript/dimension_reduction_v2_020322/' + network_type +  '_dis_err.png'
-    plt.savefig(save_des, format='png')
-    plt.close()
-    #plt.show()
-    return None
-
-def simpleaxis(ax):
-    ax.spines['top'].set_visible(False)
-    ax.spines['right'].set_visible(False)
-    ax.get_xaxis().tick_bottom()
-    ax.get_yaxis().tick_left()
-
-def subplots_distance_error_m(dynamics_list, network_type_list, d_list_list, m_list, critical_type_list, threshold_value_list_list):
-    """TODO: Docstring for facetgrid_distance_error_m.
-
-    :dynamics: TODO
-    :network_type: TODO
-    :returns: TODO
-
-    """
-    fig, axes = plt.subplots(2, len(dynamics_list), sharex=True, sharey=True, figsize=(3*len(dynamics_list), 2*3))
-    letters = list('abcdefghijklmnopqrstuvwxyz')
-    for (j, dynamics), threshold_value_list in zip(enumerate(dynamics_list), threshold_value_list_list):
-        df = df_distance_error(dynamics, network_type_list, d_list_list, m_list, critical_type_list, threshold_value_list)[['R', 'm', 'distance', 'error']]
-        for i, plot_type in enumerate(['distance', 'error']):
-            if plot_type == 'distance':
-                ylabel = 'Distance $\\langle l \\rangle $'
-            else:
-                ylabel = 'Error'
-            ax = axes[i, j]
-            simpleaxis(ax)
-            ax.annotate(f'({letters[i * len(dynamics_list) + j]})', xy=(-0.1, 1.03), xycoords="axes fraction", size=labelsize*0.6)
-            plot_df = df.pivot_table(values=plot_type, index=['m'], columns=['R'], aggfunc=np.mean)
-            plot_df.index = plot_df.index.astype(int)
-            plot_df.reset_index(inplace=True)
-            plot_df.columns.name = None
-            plot_df = pd.melt(plot_df, id_vars=['m'], value_vars=plot_df.columns[1:], var_name='R', value_name=plot_type)
-            sns.scatterplot(data=plot_df, x='m', y=plot_type, hue='R', style='R', s=100, ax=ax)
-            legend_markers, legend_labels = ax.get_legend_handles_labels() # get legend makers and labels 
-            if i == 0:
-                ax.legend(legend_markers, [f'$R_{legend_i}$' for legend_i in legend_labels], ncol=2, frameon=False, markerscale=1.0, loc='lower left', fontsize=legendsize*0.5)
-                if 'high' in dynamics or dynamics == 'genereg':
-                    title_name = dynamics[:dynamics.find('_high')] + ' (H-->L)'
-                else:
-                    title_name = dynamics + ' (L-->H)'
-                ax.set_title(title_name, size=labelsize*0.5)
-            else:
-                ax.get_legend().remove()
-
-            ax.set(xscale='log', yscale='log')
-            #ax.yaxis.set_minor_formatter(mpl.ticker.NullFormatter())
-            ax.set_xlabel('')
-            ax.set_ylabel(ylabel, size=labelsize*0.6)
-            ax.tick_params(labelsize=16*0.8)
-    xlabel = '$ m $'
-    ylabel = 'Similarity Score'
-    #fig.text(x=0.01, y=0.5, verticalalignment='center', s=ylabel, size=labelsize*0.7, rotation=90)
-    fig.text(x=0.5, y=0.01, horizontalalignment='center', s=xlabel, size=labelsize*0.6)
-    plt.subplots_adjust(left=0.12, right=0.98, wspace=0.25, hspace=0.25, bottom=0.12, top=0.95)
-    save_des = '../manuscript/dimension_reduction_v2_020322/' + ''.join(network_type_list) + '_subplots_dis_err.png'
-    plt.savefig(save_des, format='png')
-    plt.close()
-    return None
-
-def subplots_distance_error_m_individual(dynamics_list, network_type_list, d_list_list, m_list, critical_type_list, threshold_value_list_list):
-    """TODO: Docstring for facetgrid_distance_error_m.
-
-    :dynamics: TODO
-    :network_type: TODO
-    :returns: TODO
-
-    """
-    fig, axes = plt.subplots(2, len(dynamics_list), sharex=True, sharey=True, figsize=(3*len(dynamics_list), 2*3))
-    letters = list('abcdefghijklmnopqrstuvwxyz')
-    for (j, dynamics), threshold_value_list in zip(enumerate(dynamics_list), threshold_value_list_list):
-        df = df_distance_error(dynamics, network_type_list, d_list_list, m_list, critical_type_list, threshold_value_list)[['R', 'm', 'd', 'seed', 'beta_log', 'distance', 'error']]
-        df['m'] = df['m'].astype(int)
-        for i, plot_type in enumerate(['distance', 'error']):
-            df_plot = df.pivot_table(values=plot_type, index=['d', 'seed', 'beta_log'], columns=['m'])
-            df_plot.reset_index(inplace=True)
-            beta_log = np.array(df_plot['beta_log'], float)
-            df_plot = df_plot.transpose()[3:]
-            data_plot = np.array(df_plot, float)
-            if plot_type == 'distance':
-                ylabel = 'Distance $\\langle l \\rangle $'
-            else:
-                ylabel = 'Error'
-            ax = axes[i, j]
-            simpleaxis(ax)
-            ax.annotate(f'({letters[i * len(dynamics_list) + j]})', xy=(-0.1, 1.03), xycoords="axes fraction", size=labelsize*0.6)
-            #sns.scatterplot(data=df, x='m', y=plot_type, hue='beta_log', s=10, ax=ax)
-            cmap = sns.color_palette('flare', as_cmap=True)
-            
-            for y, beta_i in zip(data_plot.transpose(), beta_log):
-                ax.plot(m_list, y, '--', linewidth=0.1, color=cmap((beta_i-beta_log.min())/(beta_log.max() - beta_log.min())) )
-            #lines = [list(zip(m_list, y)) for y in data_plot.transpose()]
-            #colored_lines = mpl.collections.LineCollection(lines, array=beta_log, cmap=cmap, linewidths=0.5)
-            #ax.add_collection(colored_lines)
-            if i == 0:
-                if 'high' in dynamics or dynamics == 'genereg':
-                    title_name = dynamics[:dynamics.find('_high')] + ' (H-->L)'
-                else:
-                    title_name = dynamics + ' (L-->H)'
-                ax.set_title(title_name, size=labelsize*0.5)
-
-            ax.set(xscale='log')
-            ax.set_yscale('symlog', linthreshy=1e-1)
-            #ax.yaxis.set_minor_formatter(mpl.ticker.NullFormatter())
-            ax.set_xlabel('')
-            ax.set_ylabel(ylabel, size=labelsize*0.6)
-            ax.tick_params(labelsize=16*0.8)
-    vmin, vmax = beta_log.min(), beta_log.max()
-    cax = fig.add_axes([0.89, 0.2, 0.02, 0.6])
-    points = plt.scatter([], [], c=[], vmin=vmin, vmax=vmax, cmap=cmap)
-    fig.colorbar(points, cax=cax)
-    cbar_ticks = cax.get_yticks()
-    cax.get_yaxis().set_ticklabels(np.array(10**(cbar_ticks), int), size=ticksize)
-    cax.set_ylabel('$\\beta(w=1)$', fontsize=labelsize)
-
-    xlabel = '$ m $'
-    ylabel = 'Similarity Score'
-    #fig.text(x=0.01, y=0.5, verticalalignment='center', s=ylabel, size=labelsize*0.7, rotation=90)
-    fig.text(x=0.5, y=0.01, horizontalalignment='center', s=xlabel, size=labelsize*0.6)
-    plt.subplots_adjust(left=0.1, right=0.85, wspace=0.25, hspace=0.25, bottom=0.1, top=0.95)
-    save_des = '../manuscript/dimension_reduction_v2_020322/' + ''.join(network_type_list) + '_subplots_dis_err.png'
-    #plt.savefig(save_des, format='png')
-    #plt.close()
-    return None
-
-def subplots_distance_error_std_m(dynamics_list, network_type_list, d_list_list, m_list, critical_type_list, threshold_value_list_list):
-    """TODO: Docstring for facetgrid_distance_error_m.
-
-    :dynamics: TODO
-    :network_type: TODO
-    :returns: TODO
-
-    """
-    fig, axes = plt.subplots(2, len(dynamics_list), sharex=True, sharey=True, figsize=(3 * len(dynamics_list), 6))
-    letters = list('abcdefghijklmnopqrstuvwxyz')
-    for (j, dynamics), threshold_value_list in zip(enumerate(dynamics_list), threshold_value_list_list):
-        df = df_distance_error(dynamics, network_type_list, d_list_list, m_list, critical_type_list, threshold_value_list)[['R', 'm', 'distance', 'error']]
-        df['m'] = df['m'].astype(int)
-        for i, plot_type in enumerate(['distance', 'error']):
-            df_stat = df[['m', plot_type]].groupby('m').describe().sort_values(by=['m'])
-            std = df_stat[(plot_type, 'std')]
-            mean = df_stat[(plot_type, 'mean')]
-            if plot_type == 'distance':
-                ylabel = 'Distance $\\langle l \\rangle $'
-            else:
-                ylabel = 'Error'
-            ax = axes[i, j]
-            simpleaxis(ax)
-            ax.annotate(f'({letters[i * len(dynamics_list) + j]})', xy=(-0.1, 1.03), xycoords="axes fraction", size=labelsize*0.6)
-            #sns.lineplot(data=df, x='m', y=plot_type, ci=None, ax=ax)
-            ax.plot(m_list, mean)
-            ax.fill_between(m_list, mean-std, mean+std, alpha=0.3)
-            legend_markers, legend_labels = ax.get_legend_handles_labels() # get legend makers and labels 
-            if i == 0:
-                if 'high' in dynamics or dynamics == 'genereg':
-                    title_name = dynamics[:dynamics.find('_high')] + ' (H-->L)'
-                else:
-                    title_name = dynamics + ' (L-->H)'
-                ax.set_title(title_name, size=labelsize*0.5)
-
-            ax.set(xscale='log')
-            #ax.yaxis.set_minor_formatter(mpl.ticker.NullFormatter())
-            ax.set_xlabel('')
-            if j == 0:
-                ax.set_ylabel(ylabel, size=labelsize*0.6)
-            ax.tick_params(labelsize=16*0.8)
-    xlabel = '$ m $'
-    fig.text(x=0.5, y=0.01, horizontalalignment='center', s=xlabel, size=labelsize*0.6)
-    plt.subplots_adjust(left=0.12, right=0.98, wspace=0.25, hspace=0.25, bottom=0.12, top=0.95)
-    save_des = '../manuscript/dimension_reduction_v2_020322/' + ''.join(network_type_list) +  '_subplots_dis_err_std_noabs.png'
-    plt.savefig(save_des, format='png')
-    plt.close()
-    return None
+    
 
 
  
@@ -1320,10 +928,6 @@ arguments = (a, b)
 attractor_value = 1000
 
 
-dynamics = 'CW'
-arguments = (a, b)
-attractor_value = 0
-
 dynamics = 'genereg'
 arguments = (B_gene, )
 attractor_value = 100
@@ -1331,6 +935,10 @@ attractor_value = 100
 dynamics = 'mutual'
 arguments = (B, C, D, E, H, K_mutual)
 attractor_value = 0.1
+
+dynamics = 'CW'
+arguments = (a, b)
+attractor_value = 0
 
 
 beta = 1
@@ -1420,73 +1028,14 @@ threshold_value = 5
 #critical_region_plot(network_type_list, N, d_list, seed_list, m, weight_list_list, space_list, plot_type, critical_type, threshold_value)
 hetero_type = 'h1'
 
-#kmean, h1, h2, wc = critical_boundary(dynamics, network_type, m, hetero_type, critical_type, threshold_value)
-
-
 network_type = 'SF'
-network_type = 'ER'
-network_type_list = ['SF']
-gamma_list = [round(i, 1) if i%1 > 1e-5 else int(i) for i in np.hstack(( np.arange(2.1, 5.01, 0.2), np.arange(6, 20.1, 1) )) ]
-kmin_list = [3, 4, 5]
-d_SF = [[gamma, N-1, kmin] for gamma in gamma_list for kmin in kmin_list]
-
-kmean_half = np.arange(2, 11)
-d_ER = sum([ [i * N] * 10 for i in kmean_half ], [] )
-network_type_list = ['SF']
-d_list_list = [d_SF]
-
-
-critical_type_list = ['ygl', 'survival_ratio']
-m_list = [1, 3, 5, 10, 20, 50]
-m_list = [1, 2, 4]
-m_list = [1, 2, 4, 8, 16, 32]
-
-
-
-
-
-
-
-
-dynamics = 'genereg'
-threshold_value_list = [[0.001, 0.01, 0.1], [0.3, 0.5, 0.7]]
-
-dynamics = 'CW'
-threshold_value_list = [[1, 3, 5], [0.3, 0.5, 0.7]]
-
-dynamics = 'mutual'
-threshold_value_list = [[1, 3, 5], [0.3, 0.5, 0.7]]
-
-
-threshold_value_list_list = [[[1, 3, 5], [0.3, 0.5, 0.7]], [[1, 3, 5], [0.3, 0.5, 0.7]], [[0.001, 0.01, 0.1], [0.3, 0.5, 0.7]], [[1, 3, 5], [0.3, 0.5, 0.7]]]
-dynamics_list = ['mutual', 'CW', 'genereg', 'CW_high']
-for dynamics, threshold_value_list in zip(dynamics_list, threshold_value_list_list):
-    #facetgrid_wc_N_m_list(dynamics, network_type_list, d_list_list, m_list, critical_type_list, threshold_value_list)
-    #facetgrid_beta_N_m_list(dynamics, network_type_list, d_list_list, m_list, critical_type_list, threshold_value_list)
-    pass
-
-
-m_list = np.hstack(( np.arange(1, 51),  np.unique(np.array([1.21 ** i for i in range(37)], int) )[16:] )) 
-m_list = np.unique(np.array([1.21 ** i for i in range(37)], int) )
-m_list = np.unique(np.array(np.round([(2**0.25) ** i for i in range(40)], 0), int) )
-plot_type = 'error'
-plot_type = 'distance'
-
-
-threshold_value_list_list = [[[1, 3, 5], [0.3, 0.5, 0.7]], [[1, 3, 5], [0.3, 0.5, 0.7]], [[0.001, 0.01, 0.1], [0.3, 0.5, 0.7]], [[1, 3, 5], [0.3, 0.5, 0.7]]]
-dynamics_list = ['mutual', 'CW', 'genereg', 'CW_high']
-#facetgrid_distance_error_m(dynamics_list, network_type, m_list, critical_type_list, threshold_value_list_list)
-#plot_ave_distance_error_m(dynamics, network_type, m_list, critical_type_list, threshold_value_list, plot_type)
-#plot_std_distance_error_m(dynamics, network_type, m_list, critical_type_list, threshold_value_list, plot_type)
-
-
-#subplots_distance_error_m(dynamics_list, network_type_list, d_list_list, m_list, critical_type_list, threshold_value_list_list)
-
-critical_type_list = ['survival_ratio'] 
-threshold_value_list_list = [ [[0.5]], [[0.5]], [[0.5]], [[0.5]] ] 
-#subplots_distance_error_std_m(dynamics_list, network_type_list, d_list_list, m_list, critical_type_list, threshold_value_list_list)
-gamma_list = [round(i, 1) if i%1 > 1e-5 else int(i) for i in np.hstack(( np.arange(2.1, 5.01, 0.2) , np.arange(6, 20.1, 2) )) ]
-kmin_list = [3, 4, 5]
-d_SF = [[gamma, N-1, kmin] for gamma in gamma_list for kmin in kmin_list]
-d_list_list = [d_SF]
-subplots_distance_error_m_individual(dynamics_list, network_type_list, d_list_list, m_list, critical_type_list, threshold_value_list_list)
+m = 10
+critical_type = 'ygl'
+threshold_value = 2
+#kmean, h1, h2, wc = critical_boundary(dynamics, network_type, m, hetero_type, critical_type, threshold_value)
+m_list = [1, 5, 10]
+threshold_value_list = [1, 3, 5]
+threshold_value_list = [0.5, 1, 3]
+threshold_value_list = [1, 3, 5]
+facetgrid_wc_N_m_list(dynamics, network_type, m_list, critical_type, threshold_value_list)
+#df = df_wc_N_m(dynamics, network_type, m_list, critical_type, threshold_value_list)

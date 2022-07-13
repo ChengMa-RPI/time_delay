@@ -27,7 +27,7 @@ from scipy.signal import find_peaks
 
 mpl.rcParams['axes.prop_cycle'] = cycler(color=['tab:blue', 'tab:orange', 'tab:green', 'tab:red', 'tab:purple', 'tab:brown', 'tab:pink', 'grey', 'tab:olive', 'tab:cyan']) 
 
-cpu_number = 40
+cpu_number = 8
 B = 0.1
 C = 1
 K_mutual = 5
@@ -235,11 +235,18 @@ def tau_1D(dynamics, beta_list, initial_condition, arguments):
             P =  -(1 -xs / K) * (2 * xs / C-1)- (2 * beta * xs)/(D + E * xs + H * xs) + (beta * (E+H) * xs**2)/(D + (E+H) * xs)**2 
             Q = xs/K*(xs/C-1)
 
-            if abs(P/Q)<=1:
-                tau = np.arccos(-P/Q) /Q/np.sin(np.arccos(-P/Q))
-                nu = np.arccos(-P/Q)/tau
-                tau_list.append(tau[0])
-                beta_plot.append(beta)
+        if abs(P/Q)<=1:
+            tau = np.arccos(-P/Q) /Q/np.sin(np.arccos(-P/Q))
+            nu = np.arccos(-P/Q)/tau
+            tau_list.append(tau[0])
+            beta_plot.append(beta)
+
+    "save data"
+    data = np.vstack((beta_plot, tau_list))
+    df = pd.DataFrame(data.transpose())
+    des_file = '../data/' + dynamics + '/tau_1D.csv' 
+    df.to_csv(des_file, index=None, header=None)
+
     plt.plot(beta_plot, tau_list, linewidth=lw, alpha=alpha)
     plt.subplots_adjust(left=0.18, right=0.98, wspace=0.25, hspace=0.25, bottom=0.18, top=0.98)
     plt.xticks(fontsize=ticksize)
@@ -338,13 +345,13 @@ def evolution_multi(network_type, arguments, N, beta, betaeffect, d, seed, delay
     xs = odeint(mutual_multi, dyn_multi, t, args=(arguments, net_arguments))[-1]
     iteration = 1
     deviation1 = np.abs(dyn_multi - xs)
-    while iteration:
+    while 0 < iteration < 50:
         dyn_multi = ddeint_Cheng(mutual_multi_delay, dyn_multi, t, *(delay, arguments, net_arguments))[-1]
         deviation2 = np.abs(dyn_multi-xs)
         if np.max(deviation2)< 1e-2:
             iteration = 0
         elif np.sum(deviation2) < np.sum(deviation1):
-            iteration = 1
+            iteration += 1
             deviation1 = deviation2
         else:
             iteration = 0
@@ -365,6 +372,7 @@ def evolution_multi(network_type, arguments, N, beta, betaeffect, d, seed, delay
     df.to_csv(des_file, mode='a', index=None, header=None)
     #dyn_multi = ddeint_Cheng(mutual_multi_delay, xs-1e-3, t, *(delay, arguments, net_arguments))
     #dyn_decouple = ddeint_Cheng(mutual_decouple_two_delay, xs_decouple - 1e-3, t, *(delay, w, beta, arguments))
+    #print(x, np.max(deviation2))
     return None
 
 def parallel_evolution(network_type, arguments, N, beta, betaeffect, d, seed_list, delay, initial_value):
@@ -379,6 +387,27 @@ def parallel_evolution(network_type, arguments, N, beta, betaeffect, d, seed_lis
     p.starmap_async(evolution_multi, [(network_type, arguments, N, beta, betaeffect, d, seed, delay, initial_value) for seed in seed_list]).get()
     p.close()
     p.join()
+    return None
+
+def plot_single_delay(initial_condition, delay, beta, arguments):
+    """TODO: Docstring for plot_single.
+
+    :dynamics: TODO
+    :: TODO
+    :returns: TODO
+
+    """
+    t = np.arange(0, 100, 0.001)
+    dyn_all = ddeint_Cheng(mutual_single_delay, [initial_condition], t, *(delay, beta, arguments))
+    plt.plot(t[::10], dyn_all[::10], alpha=alpha, color='tab:blue')
+    plt.subplots_adjust(left=0.18, right=0.98, wspace=0.25, hspace=0.25, bottom=0.18, top=0.98)
+    plt.xticks(fontsize=ticksize)
+    plt.yticks(fontsize=ticksize)
+    #plt.locator_params(axis='x', nbins=4)
+    plt.xlabel('$t$', fontsize= fs)
+    plt.ylabel('$x$', fontsize =fs)
+    plt.legend( fontsize=legendsize, frameon=False)
+    plt.show()
     return None
 
 
@@ -424,25 +453,37 @@ initial_condition = [5.1]
 
 dynamics = 'mutual'
 arguments = (B, C, D, E, H, K_mutual)
-beta_list = np.arange(1, 10, 0.1)
+beta_list = np.arange(0.1, 20, 0.1)
 tau_list = [0.1, 0.15, 0.2, 0.025, 0.3]
 initial_condition_list = [0.1, 5.0, 6.0, 10.0]
 initial_condition = [5.0]
 
-#tau_critical = tau_1D(dynamics, beta_list, initial_condition, arguments)
+tau_critical = tau_1D(dynamics, beta_list, initial_condition, arguments)
 #parallel_bifurcation(dynamics, beta_list, initial_condition_list, tau_list, arguments)
 
 network_type = 'SF'
-N = 100
+N = 1000
 beta = 1
 betaeffect = 1
-d = [2.5, 99, 3]
+d = [4, 99, 3]
 seed1 = np.arange(100).tolist()
 seed_list = np.vstack((seed1, seed1)).transpose().tolist()
+network_type = 'ER'
+d = 8000
+seed_list = seed1
 delay = 0.2
 initial_value = 5.0
-beta_list = np.arange(1, 10, 0.5)
-for beta in beta_list:
-    parallel_evolution(network_type, arguments, N, beta, betaeffect, d, seed_list, delay, initial_value)
-    pass
+beta_list = [5.6, 5.7, 5.8, 5.9, 6.1, 6.2, 6.3, 6.4]
+beta_list = np.round(np.arange(0.5, 10, 0.5), 3)
+beta_list = [5.5, 6, 7, 8, 9]
+d_list = [2000, 4000, 8000, 12000, 16000, 6000, 10000, 14000 ]  
+d_list = [16000]
+for d in d_list:
+    for beta in beta_list:
+        print(beta)
+        #parallel_evolution(network_type, arguments, N, beta, betaeffect, d, seed_list, delay, initial_value)
+        pass
+beta = 4.0
+seed = [15, 15]
 #evolution_multi(network_type, arguments, N, beta, betaeffect, d, seed, delay, initial_value)
+#plot_single_delay(5.0, 0.21, 4, arguments)

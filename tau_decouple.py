@@ -490,7 +490,7 @@ def tau_decouple(network_type, N, d, beta, betaeffect, arguments, seed_list):
     return None
 
 def tau_decouple_eff(network_type, N, d, beta, betaeffect, arguments, seed_list):
-    """TODO: Docstring for tau_kmax.
+    """TODO: 10 largest degree to decide critical point.
 
     :network_type: TODO
     :N: TODO
@@ -512,24 +512,23 @@ def tau_decouple_eff(network_type, N, d, beta, betaeffect, arguments, seed_list)
         A, A_interaction, index_i, index_j, cum_index = network_generate(network_type, N, beta, betaeffect, seed, d)
         beta_eff, _ = betaspace(A, [0])
         xs_low, xs_high = stable_state(A, A_interaction, index_i, index_j, cum_index, arguments)
-        degree = np.sum(A>0, 0)
-        #x_fix = np.mean(xs_high)
-        x_fix = odeint(mutual_1D, np.ones(1) * 5, np.arange(0, 100, 0.01), args=(beta_eff, arguments))[-1]
-        index_list = np.argsort(degree)[-10:]
-        tau = []
-        for index in index_list:
+        wk = np.sum(A, 0)
+        x_fix = odeint(mutual_1D, np.ones(1) * 5, np.arange(0, 200, 0.01), args=(beta_eff, arguments))[-1]
+        index_list = np.argsort(wk)[-10:]
+        tau_list = np.ones(len(index_list)) * 100
+        for index, i in zip(index_list, range(len(index_list))):
             w = np.sum(A[index])
-            xs = ddeint_Cheng(one_single_delay, np.ones(1)*5, np.arange(0, 100, 0.01), *(0, 0, 0, w, x_fix, arguments))[-1]
-            #xs = fsolve(one_kmax, np.ones(1) * 10, args=(w, x_fix, arguments))
+            xs = ddeint_Cheng(one_single_delay, np.ones(1)*5, np.arange(0, 200, 0.01), *(0, 0, 0, w, x_fix, arguments))[-1]
             P =  - (w * x_fix)/(D + E * xs + H * x_fix) + (w * E * xs * x_fix)/(D + E * xs + H * x_fix)**2 -(1-xs/K) * (2*xs/C-1)
             Q = xs/K*(xs/C-1)
             if abs(P/Q)<=1:
-                tau.append( np.arccos(-P/Q) /Q/np.sin(np.arccos(-P/Q)) )
-        tau = np.min(tau)
-        data = np.hstack((seed, degree.max(), tau))
+                tau_list[i] = np.arccos(-P/Q) /Q/np.sin(np.arccos(-P/Q)) 
+        tau = np.min(tau_list)
+        tau_index = index_list[np.where(tau == tau_list)[0][0]]
+        data = np.hstack((seed, wk.max(), tau, wk[tau_index], np.where(np.sort(wk)[::-1]==wk[tau_index])[0][-1]))
      
         column_name = [f'seed{i}' for i in range(np.size(seed))]
-        column_name.extend(['kmax', str(beta) ])
+        column_name.extend(['kmax', str(beta), 'wk', 'order' ])
 
         if not os.path.exists(des_file):
             df = pd.DataFrame(data.reshape(1, np.size(data)), columns = column_name)
@@ -725,6 +724,41 @@ def evolution_single(network_type, N, beta, betaeffect, seed, arguments, d1, d2,
     #plt.show()
     return dyn_all, tau
 
+def critical_wk(beta, betaeffect, wk_list, arguments):
+    """TODO: Docstring for critical_wk.
+
+    :arg1: TODO
+    :returns: TODO
+
+    """
+
+    B, C, D, E, H, K = arguments
+    des = '../data/'
+    if not os.path.exists(des):
+        os.makedirs(des)
+    if betaeffect:
+        des_file = des + 'beta=' + str(beta) + '_logistic.csv'
+    else:
+        des_file = des + 'wt=' + str(beta) + '_logistic.csv'
+
+    x_fix = odeint(mutual_1D, np.ones(1) * 5, np.arange(0, 200, 0.01), args=(beta, arguments))[-1]
+    tau = np.zeros((len(wk_list)))
+    for i, wk in zip(range(len(wk_list)), wk_list):
+        xs = ddeint_Cheng(one_single_delay, np.ones(1)*5, np.arange(0, 200, 0.01), *(0, 0, 0, wk, x_fix, arguments))[-1]
+        #xs = fsolve(one_kmax, np.ones(1) * 10, args=(w, x_fix, arguments))
+        P =  - (wk * x_fix)/(D + E * xs + H * x_fix) + (wk * E * xs * x_fix)/(D + E * xs + H * x_fix)**2 -(1-xs/K) * (2*xs/C-1)
+        Q = xs/K*(xs/C-1)
+        if abs(P/Q)<=1:
+            tau[i] = np.arccos(-P/Q) /Q/np.sin(np.arccos(-P/Q))
+    data = np.vstack((wk_list, tau))
+     
+    if not os.path.exists(des_file):
+        df = pd.DataFrame(data.transpose())
+        df.to_csv(des_file, index=None, header=None, mode='a')
+    else:
+        df = pd.DataFrame(data.transpose())
+        df.to_csv(des_file, index=None, header=None, mode='a')
+    return None
 
 
 imag = 1j
@@ -798,19 +832,27 @@ print(t2 - t1)
 
 delay = 0.35
 N = 1000
-betaeffect = 0
-beta = 0.01
+betaeffect = 1
+beta = 1
 beta_list = [0.05, 0.1, 0.2]
 beta_list = [0.1, 0.05, 0.2, 0.01]
-d = [3, 999, 3]
+beta_list = [0.1]
+d_list = [[2.5, 999, 3], [3, 999, 3], [3.5, 999, 3], [4, 999, 3]]
 seed = [187, 187]
 #dyn_multi, xs_multi = evolution_analysis(network_type, N, beta, betaeffect, seed, d, delay)
 #dyn_all = evolution(network_type, N, beta, betaeffect, seed, arguments, delay, 0, 0, d)
-for beta in beta_list:
-    #tau = tau_kmax(network_type, N, d, beta, betaeffect, arguments, seed_list)
-    #tau = tau_two(network_type, N, d, beta, betaeffect, arguments, seed_list)
-    tau_decouple_eff(network_type, N, d, beta, betaeffect, arguments, seed_list)
-    #tau_two_single_delay(network_type, N, d, beta, betaeffect, arguments, seed_list)
-    #tau = tau_decouple(network_type, N, d, beta, betaeffect, arguments, seed_list)
+
+for d in d_list:
+    for beta in beta_list:
+        #tau = tau_kmax(network_type, N, d, beta, betaeffect, arguments, seed_list)
+        tau = tau_two(network_type, N, d, beta, betaeffect, arguments, seed_list)
+        #tau_decouple_eff(network_type, N, d, beta, betaeffect, arguments, seed_list)
+        #tau_two_single_delay(network_type, N, d, beta, betaeffect, arguments, seed_list)
+        #tau = tau_decouple(network_type, N, d, beta, betaeffect, arguments, seed_list)
 
 #dyn, tau = evolution_single(network_type, N, beta, betaeffect, seed, arguments, delay, 0, 0, d)
+beta = 1
+betaeffect = 1
+wk_list = np.arange(0.1, 20, 0.1)
+
+#critical_wk(beta, betaeffect, wk_list, arguments)

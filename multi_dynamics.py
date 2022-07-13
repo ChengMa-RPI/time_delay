@@ -24,9 +24,6 @@ import itertools
 from scipy import linalg as slin
 from scipy.sparse.linalg import eigs as sparse_eig
 from scipy.signal import find_peaks
-from jitcdde import jitcdde
-from jitcdde import y as jy
-from jitcdde import t as jt
 
 mpl.rcParams['axes.prop_cycle'] = cycler(color=['tab:blue', 'tab:orange', 'tab:green', 'tab:red', 'tab:purple', 'tab:brown', 'tab:pink', 'grey', 'tab:olive', 'tab:cyan']) 
 
@@ -102,7 +99,63 @@ class Net_Dyn:
             xs = odeint(CW_multi, initial_condition, t, args=(arguments, net_arguments))[-1]
         return xs
 
-    def group_stable(self, seed, group_num):
+    def group_stable(self, seed, group_num, sa, N_trial, r_sa, T_info):
+        """TODO: Docstring for stable_network.
+
+        :seed: TODO
+        :returns: TODO
+
+        """
+        "similar function in the file 'group_decouple.py'"
+        network_type, N, beta, betaeffect, d, dynamics, attractor_value, arguments  = self.network_type, self.N, self.beta, self.betaeffect, self.d, self.dynamics, self.attractor_value, self.arguments  
+        A, A_interaction, index_i, index_j, cum_index = network_generate(network_type, N, beta, betaeffect, seed, d)
+        w = np.sum(A, 0)
+        N_actual = np.size(A, 0)
+        self.A = A
+        self.N_actual = N_actual
+        if sa:
+            group_index, rearange_index = group_partition_sa(network_type, N, d, seed, group_num, N_actual, N_trial, r_sa, T_info)
+        else:
+            if network_type == 'SF':
+                group_index, rearange_index = group_partition_degree(w, group_num, N_actual, 'log')
+            elif network_type == 'ER' or network_type == 'RGG':
+                group_index, rearange_index = group_partition_degree(w, group_num, N_actual, 'linear')
+            elif network_type == 'star':
+                group_index, rearange_index = group_partition_degree(w, group_num, N_actual, 'bimode')
+        length_groups = len(group_index)
+        "construct reduction adjacency matrix"
+        A_reduction = np.zeros((length_groups, length_groups))
+        for  i in range(length_groups):
+            for j in range(length_groups):
+                m = len(group_index[i])
+                A_reduction[i, j] = np.sum(A[group_index[i]][:, group_index[j]])/m
+        A_index = np.where(A_reduction>0)
+        A_interaction = A_reduction[A_index]
+        index_i = A_index[0] 
+        index_j = A_index[1] 
+        degree_reduction = np.sum(A_reduction>0, 1)
+        cum_index = np.hstack((0, np.cumsum(degree_reduction)))
+        net_arguments = (index_i, index_j, A_interaction, cum_index)
+        initial_condition = np.ones(length_groups) * attractor_value
+        t = np.arange(0, 1000, 0.01)
+
+        if dynamics == 'mutual':
+            xs = odeint(mutual_multi, initial_condition, t, args=(arguments, net_arguments))[-1]
+        elif dynamics == 'harvest':
+            xs = odeint(harvest_multi, initial_condition, t, args=(arguments, net_arguments))[-1]
+        elif dynamics == 'genereg':
+            xs = odeint(genereg_multi, initial_condition, t, args=(arguments, net_arguments))[-1]
+        elif dynamics == 'SIS':
+            xs = odeint(SIS_multi, initial_condition, t, args=(arguments, net_arguments))[-1]
+        elif dynamics == 'BDP':
+            xs = odeint(BDP_multi, initial_condition, t, args=(arguments, net_arguments))[-1]
+        elif dynamics == 'PPI':
+            xs = odeint(PPI_multi, initial_condition, t, args=(arguments, net_arguments))[-1]
+        elif dynamics == 'CW':
+            xs = odeint(CW_multi, initial_condition, t, args=(arguments, net_arguments))[-1]
+        return xs, group_index
+
+    def group_degree_weighted(self, seed, group_num, sa=None, N_trial=None, r_sa=None, T_info=None):
         """TODO: Docstring for stable_network.
 
         :seed: TODO
@@ -115,17 +168,22 @@ class Net_Dyn:
         N_actual = np.size(A, 0)
         self.A = A
         self.N_actual = N_actual
-        if network_type == 'SF':
-            group_index, rearange_index = group_partition_degree(w, group_num, N_actual, 'log')
-        elif network_type == 'ER':
-            group_index, rearange_index = group_partition_degree(w, group_num, N_actual, 'linear')
+        if sa:
+            group_index, rearange_index = group_partition_sa(network_type, N, d, seed, group_num, N_actual, N_trial, r_sa, T_info)
+        else:
+            if network_type == 'SF':
+                group_index, rearange_index = group_partition_degree(w, group_num, N_actual, 'log')
+            elif network_type == 'ER' or network_type == 'RGG':
+                group_index, rearange_index = group_partition_degree(w, group_num, N_actual, 'linear')
+            elif network_type == 'star':
+                group_index, rearange_index = group_partition_degree(w, group_num, N_actual, 'bimode')
         length_groups = len(group_index)
         "construct reduction adjacency matrix"
         A_reduction = np.zeros((length_groups, length_groups))
         for  i in range(length_groups):
             for j in range(length_groups):
-                m = len(group_index[i])
-                A_reduction[i, j] = np.sum(A[group_index[i]][:, group_index[j]])/m
+                k_i = w[group_index[i]] 
+                A_reduction[i, j] = np.sum(k_i * np.sum(A[group_index[i]][:, group_index[j]], 1)) / k_i.sum()
         A_index = np.where(A_reduction>0)
         A_interaction = A_reduction[A_index]
         index_i = A_index[0] 
@@ -265,7 +323,7 @@ class Net_Dyn:
             fx = 0
             fxt = -1 * np.ones(N_actual) 
             gx_i = 0
-            gx_j = A * b * np.exp(a - b * xs) / (1 + np.exp(a - b * xs)) ** 2
+            gx_j = A * (b * np.exp(a - b * xs) / (1 + np.exp(a - b * xs)) ** 2).reshape(len(xs), 1) 
 
 
         "compute eigenvalues"
@@ -382,7 +440,7 @@ class Net_Dyn:
         print(seed, tau_critical)
         return tau_critical
 
-    def eigen_blocks(self, seed, group_num):
+    def eigen_blocks(self, seed, group_num, sa, N_trial, r_sa, T_info):
         """TODO: Docstring for eigen_fg.
 
         :dynamics: TODO
@@ -391,7 +449,7 @@ class Net_Dyn:
         :returns: TODO
 
         """
-        xs_reduction, group_index = self.group_stable(seed, group_num)
+        xs_reduction, group_index = self.group_stable(seed, group_num, sa, N_trial, r_sa, T_info)
         network_type, N, N_actual, beta, betaeffect, d, dynamics, attractor_value, arguments, A, tau_list, nu_list = self.network_type, self.N, self.N_actual, self.beta, self.betaeffect, self.d, self.dynamics, self.attractor_value, self.arguments, self.A, self.tau_list, self.nu_list
 
         length_groups = len(group_index)
@@ -422,6 +480,14 @@ class Net_Dyn:
             gx_i_groups = -np.sum(A * xs_groups, 1)
             gx_j_groups =  - A * xs_groups.reshape(len(xs_groups), 1)
 
+        elif dynamics == 'CW':
+            a, b = arguments
+            fx_subgroup = np.zeros(length_groups)
+            fxt_subgroup = -1 * np.ones(length_groups) 
+            gx_i_groups = np.zeros(N_actual)
+            gx_j_groups = A * (b * np.exp(a - b * xs_groups) / (1 + np.exp(a - b * xs_groups)) ** 2).reshape(len(xs_groups), 1)
+
+
         "compute eigenvalues"
         tau_individual = []
         for i in range(length_groups):
@@ -444,20 +510,30 @@ class Net_Dyn:
 
         "save data"
         data = np.hstack((seed, tau_critical))
-        des = '../data/' + dynamics + '/' + network_type + '/eigen_blocks/'
-        if not os.path.exists(des):
-            os.makedirs(des)
-        if betaeffect:
-            des_file = des + f'N={N}_d=' + str(d) + '_beta=' + str(beta) + f'_group_num={group_num}.csv'
+        if sa:
+            des = '../data/' + dynamics + '/' + network_type + '/eigen_blocks_sa/'
+            if not os.path.exists(des):
+                os.makedirs(des)
+            if betaeffect:
+                des_file = des + f'N={N}_d=' + str(d) + '_beta=' + str(beta) + f'_group_num={group_num}.csv'
+            else:
+                des_file = des + f'N={N}_d=' + str(d) + '_wt=' + str(beta) + f'_group_num={group_num}_trial={N_trial}_r={r_sa}_T={T_info}.csv'
+
         else:
-            des_file = des + f'N={N}_d=' + str(d) + '_wt=' + str(beta) + f'_group_num={group_num}.csv'
+            des = '../data/' + dynamics + '/' + network_type + '/eigen_blocks/'
+            if not os.path.exists(des):
+                os.makedirs(des)
+            if betaeffect:
+                des_file = des + f'N={N}_d=' + str(d) + '_beta=' + str(beta) + f'_group_num={group_num}.csv'
+            else:
+                des_file = des + f'N={N}_d=' + str(d) + '_wt=' + str(beta) + f'_group_num={group_num}.csv'
 
         df = pd.DataFrame(data.reshape(1, np.size(data)))
         df.to_csv(des_file, index=None, header=None, mode='a')
         print(seed, tau_critical)
         return tau_critical
 
-    def eigen_parallel(self, function, group_num = 1, delay1=0, delay2=10):
+    def eigen_parallel(self, function, group_num = 1, delay1=0, delay2=10, sa=None, N_trial=None, r_sa=None, T_info=None):
         """TODO: Docstring for tau_critical.
 
         :arg1: TODO
@@ -470,7 +546,7 @@ class Net_Dyn:
         elif function == 'eigen_decouple':
             p.starmap_async(self.eigen_decouple, [(seed, ) for seed in self.seed_list]).get()
         elif function == 'eigen_blocks':
-            p.starmap_async(self.eigen_blocks, [(seed, group_num) for seed in self.seed_list]).get()
+            p.starmap_async(self.eigen_blocks, [(seed, group_num, sa, N_trial, r_sa, T_info) for seed in self.seed_list]).get()
         elif function == 'decouple_two':
             p.starmap_async(self.tau_decouple_two, [(seed, ) for seed in self.seed_list]).get()
         elif function == 'tau_evo':
@@ -1119,6 +1195,8 @@ def group_partition_degree(w, group_num, N_actual, space):
                 w_separate = np.logspace(np.log10(w.min()), np.log10(w.max()), bins)
             elif space == 'linear':
                 w_separate = np.linspace(w.min(), w.max(), bins)
+            elif space == 'bimode':
+                w_separate = np.linspace(w.min(), w.max(), bins)
             w_separate[-1] = w_separate[-1] * 2
             w_separate[0] = w_separate[0] *0.5
             group_index = []
@@ -1128,6 +1206,26 @@ def group_partition_degree(w, group_num, N_actual, space):
                     group_index.append(index)
             length_groups = len(group_index)
             bins += 1
+    rearange_index = np.hstack((group_index))
+    if len(rearange_index) != N_actual:
+        print(w_separate, len(rearange_index))
+        print('groups wrong')
+    return group_index, rearange_index
+
+def group_partition_sa(network_type, N, d, seed, group_num, N_actual, N_trial, r_sa, T_info):
+    """TODO: Docstring for group_partition_log_degree.
+    :returns: TODO
+
+    """
+    T0, T_num, T_decay = T_info
+    des_file = '../data/network_partition/' + network_type  + '/' + f'N={N}_d={d}_seed={seed}_group_num={group_num}_trial={N_trial}_r={r_sa}_T=[{T0}, {T_num}, {T_decay}].txt'
+    data = []
+    group_index = []
+    with open(des_file, 'r') as f:
+        data.append(f.readlines())
+    for i in data[0]:
+        group_index.append(np.array(list(map(int, i.strip().split(',')))))
+
     rearange_index = np.hstack((group_index))
     if len(rearange_index) != N_actual:
         print(w_separate, len(rearange_index))
@@ -1937,24 +2035,6 @@ def mutual_separate_delay(f, x0, x, t, dt, d, w, xeff, arguments):
     dxdt = f + g
     return dxdt
 
-def mutual_shell_delay(f, x0, x, t, dt, d, w, beta, arguments):
-    """describe the derivative of x.
-    set universal parameters 
-    :x: the species abundance of plant network 
-    :t: the simulation time sequence 
-    :par: parameters  of this system
-    :returns: derivative of x 
-
-    """
-    
-    xd = np.where(t>d, f[int((t-d)/dt)], x0)
-    B, C, D, E, H, K = arguments
-    #x[np.where(x<0)] = 0  # Negative x is forbidden
-    f = B + x * (1 - xd/K) * (x/C - 1)
-    g = np.array([w * x[0] * x[1] / (D + E * x[0] + H * x[1]), x[1] * x[0] / (D + E * x[1] + H * x[0]) + (beta - 1) * x[1] * x[2] / (D + E * x[1] + H * x[2]), x[2] * x[1] / (D + E * x[2] + H * x[1]) + (beta - 1) * x[2] * x[3] / (D + E * x[2] + H * x[3]), x[3] * x[2] / (D + E * x[3] + H * x[2]) + (beta - 1) * x[3] * x[4] / (D + E * x[3] + H * x[4]), x[4] * x[3] / (D + E * x[4] + H * x[3]) + (beta - 1) * x[4] * x[5] / (D + E * x[4] + H * x[5]), beta * x[5] * x[4] / (D + E * x[5] + H * x[4]) ])
-    dxdt = f + g
-    return dxdt
-
 
 
 def eigenvalue_zero(x, A, fx, fxt, gx_i, gx_j):
@@ -2665,6 +2745,69 @@ def compare_multi_separate(network_type, N, beta, betaeffect, seed, d, dynamics,
 
     return None
 
+def xs_group_multi(network_type, N, beta, betaeffect, seed_list, seed, d, dynamics, attractor_value, arguments, group_num, tau_list, nu_list):
+    """TODO: Docstring for xs_group_multi.
+
+    :arg1: TODO
+    :returns: TODO
+
+    """
+    n = Net_Dyn(network_type, N, beta, betaeffect, seed_list, d, dynamics, attractor_value, arguments, tau_list, nu_list)
+    xs_multi = n.multi_stable(seed)
+    degree = np.sum(n.A, 0)
+    xs_multi_degree = xs_multi[np.argsort(degree)]
+    degree_unique = len(set(degree))
+    if group_num == 'max':
+        group_num = degree_unique
+    xs_group, group_index = n.group_stable(seed, group_num)
+    xs_multi_group = np.hstack(([xs_group[i] * np.ones(len(j)) for i, j in enumerate(group_index)]))
+
+    "save data"
+    data = np.vstack((np.sort(degree), xs_multi_degree, xs_multi_group))
+    des = '../data/' + dynamics + '/' + network_type + '/xs_group/'
+    if not os.path.exists(des):
+        os.makedirs(des)
+    if betaeffect:
+        des_file = des + f'N={N}_d=' + str(d) + '_beta=' + str(beta) + f'_group_num={group_num}_seed={seed}.csv'
+    else:
+        des_file = des + f'N={N}_d=' + str(d) + '_wt=' + str(beta) + f'_group_num={group_num}_seed={seed}.csv'
+
+    df = pd.DataFrame(data.transpose())
+    df.to_csv(des_file, index=None, header=None, mode='a')
+    return xs_multi_degree, xs_multi_group
+
+def xs_group_degree_weighted(network_type, N, beta, betaeffect, seed_list, seed, d, dynamics, attractor_value, arguments, group_num, tau_list, nu_list):
+    """TODO: Docstring for xs_group_multi.
+
+    :arg1: TODO
+    :returns: TODO
+
+    """
+    n = Net_Dyn(network_type, N, beta, betaeffect, seed_list, d, dynamics, attractor_value, arguments, tau_list, nu_list)
+    xs_multi = n.multi_stable(seed)
+    degree = np.sum(n.A, 0)
+    degree_unique = len(set(degree))
+    if group_num == 'max':
+        group_num = degree_unique
+    xs_group, group_index = n.group_degree_weighted(seed, group_num)
+    xs_multi_group = np.hstack(([xs_group[i] * np.ones(len(j)) for i, j in enumerate(group_index)]))
+    group_number = np.hstack(([i * np.ones(len(j)) for i, j in enumerate(group_index)]))
+    rearange_index = np.hstack((group_index))
+    xs_multi_degree = xs_multi[rearange_index]
+
+    "save data"
+    data = np.vstack((group_number, rearange_index, xs_multi_degree, xs_multi_group))
+    des = '../data/' + dynamics + '/' + network_type + '/xs_group_degree_weighted/'
+    if not os.path.exists(des):
+        os.makedirs(des)
+    if betaeffect:
+        des_file = des + f'N={N}_d=' + str(d) + '_beta=' + str(beta) + f'_group_num={group_num}_seed={seed}.csv'
+    else:
+        des_file = des + f'N={N}_d=' + str(d) + '_wt=' + str(beta) + f'_group_num={group_num}_seed={seed}.csv'
+
+    df = pd.DataFrame(data.transpose())
+    df.to_csv(des_file, index=None, header=None, mode='a')
+    return xs_multi_degree, xs_multi_group
 
 
 
@@ -2696,14 +2839,11 @@ h =2
 a = 5
 b = 1
 
-attractor_value = 5.0
+attractor_value = 10.0
 
 
 
 
-"CW"
-dynamics = 'CW'
-arguments = (a, b)
 
 "SIS"
 dynamics = 'SIS'
@@ -2746,11 +2886,11 @@ nu_list = np.arange(1, 10, 1)
 wk_list = np.arange(0.1, 20, 0.1)
 #n.tau_decouple_two()
 network_list = ['SF', 'ER', 'RR']
-network_list = ['ER']
+network_list = ['SF']
 d_RR = [4]
 d_SF = [[2.5, 99, 3], [3, 99, 3], [3.5, 99, 3], [4, 99, 3]]
 d_SF = [[2.5, 999, 3], [3, 999, 4], [3.8, 999, 5]]
-d_SF = [[3.8, 999, 5]]
+d_SF = [[2.5, 999, 3]]
 d_ER = [100, 200, 400, 800, 1600]
 d_ER = [2000, 4000, 8000]
 d_ER = [2000]
@@ -2758,7 +2898,16 @@ d_ER = [2000]
 beta_list = [0.01, 0.1, 1]
 beta_list = [1]
 betaeffect = 0
-blocks_list = np.arange(2, 5, 1)
+blocks_list = [2]
+blocks_list = np.arange(21, 51, 1)
+
+sa = 0
+N_trial = 100000
+r_sa = 0.99
+T0 = 1e-5
+T_num = 10
+T_decay = 0.9
+T_info = [T0, T_num, T_decay]
 
 for network_type in network_list:
     if network_type == 'SF':
@@ -2785,7 +2934,8 @@ for network_type in network_list:
             #n.eigen_parallel('tau_RK', 0, 2)
             #n.tau_decouple_eff()
             for group_num in blocks_list:
-                n.eigen_parallel('eigen_blocks', group_num)
+                #n.eigen_parallel('eigen_blocks', group_num, )
+                #n.eigen_parallel('eigen_blocks', group_num=group_num, sa=sa, N_trial=N_trial, r_sa=r_sa, T_info=T_info)
                 pass
 
 beta_list = [2]
@@ -2797,149 +2947,49 @@ for beta in beta_list:
 #n.tau_decouple_wk(wk_list)
 
 
-"""
-delay = 2.1
-w_index = 4
-#compare_multi_separate(network_type, N, beta, betaeffect, seed, d, dynamics, delay, attractor_value, arguments, w_index)
-n = Net_Dyn(network_type, N, beta, betaeffect, seed_list, d, dynamics, attractor_value, arguments, tau_list, nu_list)
-
-index = 0
-xs = n.multi_stable(seed)
-dynamics_function = PPI_multi_delay
-A, A_interaction, index_i, index_j, cum_index = network_generate(network_type, N, beta, betaeffect, seed, d)
-net_arguments = (index_i, index_j, A_interaction, cum_index)
-w = np.sum(A, 0)
-N_actual = len(w)
-beta_eff, _ = betaspace(A, [0])
-#beta_eff = np.mean(w)
-xeff = n.single_stable(beta_eff)
-initial_condition = xs -np.random.random(N_actual) * 0.005
-initial_condition = xs - 0.005
-dt = 0.001
-t = np.arange(0, 200, dt)
-
-#xs_separate = ddeint_Cheng(dynamics_function, initial_condition, t, *(0.01, w, xeff, arguments))
-#x_i = dde_RK45(dynamics_function, xs_separate, t, *(delay1, w, xeff, arguments))
-#_, xeff2 = betaspace(A, x_i)
-
-#dyn_all1 = dde_RK45(dynamics_function, xs_separate, t, *(delay1, w, xeff2, arguments))
-
-dyn_multi = ddeint_Cheng(dynamics_function, initial_condition, t, *(delay, arguments, net_arguments))[-index:]
-
-plt.plot(t, dyn_multi, linewidth=lw, alpha=alpha)
-plt.subplots_adjust(left=0.18, right=0.98, wspace=0.25, hspace=0.25, bottom=0.18, top=0.98)
-plt.xticks(fontsize=ticksize)
-plt.yticks(fontsize=ticksize)
-plt.xlabel('$t$', fontsize= fs)
-plt.ylabel('$x$', fontsize =fs)
-plt.locator_params(axis='x', nbins=5)
-plt.legend(fontsize=legendsize, frameon=False)
-plt.show()
-
-#evolution_compare_eff(dynamics, network_type, arguments, N, beta, betaeffect, d, seed, delay, index)
-
-xeff_individual = []
-for i in range(len(A)):
-    neighbor_index = np.where(A[i]>0)[0]
-    s_out = w[neighbor_index]
-    xeff_individual.append(np.mean(x_i[:, neighbor_index] * s_out, -1)/np.mean(s_out))
-xeff2 = np.vstack((xeff_individual)).transpose()
-i = 2
-initial_condition = np.ones(6) * 5.0
-for w_i in np.arange(w.min(), w.max(), 2):
-    xs_shell = dde_RK45(mutual_shell_delay, initial_condition, t, *(0.01, w_i, beta_eff, arguments))[-1] - 1e-1
-    dyn_shell = dde_RK45(mutual_shell_delay, xs_shell, t, *(delay1, w_i, beta_eff, arguments))
-
-n = Net_Dyn(network_type, N, beta, betaeffect, seed_list, d, dynamics, attractor_value, arguments, tau_list, nu_list)
-xs = n.multi_stable(seed)
-network_type, N, N_actual, beta, betaeffect, d, dynamics, attractor_value, arguments, A, tau_list, nu_list = n.network_type, n.N, n.N_actual, n.beta, n.betaeffect, n.d, n.dynamics, n.attractor_value, n.arguments, n.A, n.tau_list, n.nu_list
-beta_eff, _ = betaspace(A, [0])
-#xs = n.single_stable(beta_eff)
-if dynamics == 'mutual':
-    B, C, D, E, H, K = arguments
-    fx = (1-xs/K) * (2*xs/C-1)
-    fxt = -xs/K*(xs/C-1)
-    #denominator = D + E * xs + H * xs
-    "A should be transposed to A_ji"
-    #gx_i = xs/denominator - E * xs * xs/denominator ** 2 
-    #gx_j = xs/denominator - H * xs * xs/denominator ** 2 
-
-    xs_T = xs.reshape(len(xs), 1)
-    denominator = D + E * xs + H * xs_T
-
-    gx_i = np.sum(A * (xs_T/denominator - E * xs * xs_T/denominator ** 2 ), 0)
-    gx_j = A * (xs/denominator - H * xs * xs_T/denominator ** 2 )
-
-w = np.sum(A, 0)
-interval_diff= 1/100
-group_index = []
-for i in range(10000):
-    index = np.where((w <= w.max() * np.exp(-interval_diff * i) ) & (w > w.max() * np.exp(-interval_diff * (i+1)) ))[0]
-    if len(index):
-        group_index.append(index)
-#group_index = [[i] for i in range(N_actual)]
-
-rearange_index = np.hstack((group_index))
-fx_rearange= fx[rearange_index]
-fxt_rearange= fxt[rearange_index]
-gx_i_rearange = gx_i[rearange_index]
-gx_j_rearange = gx_j[:, rearange_index][rearange_index]
-tau_c = []
-length_groups = len(group_index)
-A_reduction = np.zeros((length_groups, length_groups))
-for  i in range(length_groups):
-    for j in range(length_groups):
-        m = len(group_index[i])
-        A_reduction[i, j] = np.sum(A[group_index[i]][:, group_index[j]])/m
-
-A_index = np.where(A_reduction>0)
-A_interaction = A_reduction[A_index]
-index_i = A_index[0] 
-index_j = A_index[1] 
-degree_reduction = np.sum(A_reduction>0, 1)
-cum_index = np.hstack((0, np.cumsum(degree_reduction)))
-net_arguments = (index_i, index_j, A_interaction, cum_index)
-
-initial_condition = np.ones(length_groups) * attractor_value
-t = np.arange(0, 1000, 0.01)
-xs_reduction = odeint(mutual_multi, initial_condition, t, args=(arguments, net_arguments))[-1]
-
-fx_subgroup = (1-xs_reduction/K) * (2*xs_reduction/C-1)
-fxt_subgroup = -xs_reduction/K*(xs_reduction/C-1)
-
-#A_rearange = A[rearange_index][:, rearange_index]
-xs_groups = np.ones(N_actual)
-for i in range(length_groups):
-    xs_groups[group_index[i]] = xs_reduction[i]
-#xs_rearange = np.hstack(([[xs_reduction[i]] * len(group_index[i]) for i in range(length_groups)]))
-xs_groups_T = xs.reshape(len(xs_groups), 1)
-denominator = D + E * xs_groups + H * xs_groups_T
-gx_i_groups = np.sum(A* (xs_groups_T/denominator - E * xs_groups * xs_groups_T/denominator ** 2 ), 0)
-gx_j_groups = A* (xs_groups/denominator - H * xs_groups * xs_groups_T/denominator ** 2 )
-
-for i in range(length_groups):
-    gx_i_subgroup = gx_i_groups[group_index[i]]
-    gx_j_subgroup = gx_j_groups[group_index[i]][:, group_index[i]]
-    L = gx_j_subgroup
-    np.fill_diagonal(L, gx_i_subgroup)
-    eigenvalue, eigenvector = np.linalg.eig(L)
-    P = - (fx_subgroup[i] +eigenvalue)
-    Q = - fxt_subgroup[i]
-    PQ_index = np.where(np.abs(P/Q)<=1)[0]
-    if len(PQ_index):
-        P_index = P[PQ_index]
-        Q_index = Q
-        #Q_index = Q[PQ_index]
-        tau_list = np.arccos(-P_index/Q_index) /Q_index/np.sin(np.arccos(-P_index/Q_index))
-        tau_critical = np.min(tau_list)
-        tau_c.append(tau_critical)
-        print(i, tau_critical)
-    else:
-        print(i)
-
-"""
+N = 1000
+beta = 1
+betaeffect = 0
 
 
 
 
 
+
+
+
+dynamics = 'PPI'
+arguments = (B_PPI, F_PPI)
+
+dynamics = 'BDP'
+arguments = (B_BDP, )
+
+dynamics = 'mutual'
+arguments = (B, C, D, E, H, K_mutual)
+
+dynamics = 'CW'
+arguments = (a, b)
+
+
+network_type = 'ER'
+d_list = [2000, 4000, 8000]
+seed_list = seed_ER[:10]
+
+
+network_type = 'SF'
+d_list = [[2.5, 999, 3], [3, 999, 4], [3.8, 999, 5]]
+d_list = [[2.1, 999, 2]]
+seed_list = seed_SF[:10]
+
+network_type = 'RGG'
+d_list = [0.04, 0.05, 0.07][::-1]
+seed_list = seed_ER[:10]
+
+
+group_num_list = np.arange(15, 18, 1)
+for d in d_list:
+    for seed in seed_list:
+        for group_num in group_num_list:
+            #xs_multi_degree, xs_multi_group = xs_group_multi(network_type, N, beta, betaeffect, seed_list, seed, d, dynamics, attractor_value, arguments, group_num, tau_list, nu_list)
+            xs_group_degree_weighted(network_type, N, beta, betaeffect, seed_list, seed, d, dynamics, attractor_value, arguments, group_num, tau_list, nu_list)
+            pass

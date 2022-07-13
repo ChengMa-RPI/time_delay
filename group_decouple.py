@@ -28,7 +28,7 @@ from collections import Counter
 
 mpl.rcParams['axes.prop_cycle'] = cycler(color=['tab:blue', 'tab:orange', 'tab:green', 'tab:red', 'tab:purple', 'tab:brown', 'tab:pink', 'grey', 'tab:olive', 'tab:cyan']) 
 
-cpu_number = 1
+cpu_number = 5
 B = 0.1
 C = 1
 K_mutual = 5
@@ -164,7 +164,7 @@ def BDP_group_decouple(x, t, arguments, w, xs_group_transpose):
     return dxdt 
 
 def BDP_multi(x, t, arguments, net_arguments):
-    """SIS model
+    """BDP model
 
     :x: TODO
     :t: TODO
@@ -1291,7 +1291,8 @@ def parallel_group_iteration_adaptive_two_cluster_stable(network_type, N, beta, 
 
     """
     p = mp.Pool(cpu_number)
-    p.starmap_async(group_iteration_adaptive_two_cluster_stable, [(network_type, N, beta, betaeffect, seed, d, group_num, dynamics, arguments, attractor_value, space, iteration_step, diff_states, xs_high_criteria) for seed in seed_list]).get()
+    #p.starmap_async(group_iteration_adaptive_two_cluster_stable, [(network_type, N, beta, betaeffect, seed, d, group_num, dynamics, arguments, attractor_value, space, iteration_step, diff_states, xs_high_criteria) for seed in seed_list]).get()
+    p.starmap_async(group_iteration_adaptive_two_cluster_stable_improve, [(network_type, N, beta, betaeffect, seed, d, group_num, dynamics, arguments, attractor_value, space, iteration_step, diff_states) for seed in seed_list]).get()
     p.close()
     p.join()
     return None
@@ -1428,13 +1429,13 @@ def evolution(network_type, N, beta, betaeffect, seed, d, group_num, dynamics, a
 
     
 
-seed1 = np.arange(10).tolist()
 seed1 = np.array([6])
+seed1 = np.arange(10).tolist()
 seed_SF = np.vstack((seed1, seed1)).transpose().tolist()
 seed_ER = seed1
 
 N = 1000
-beta = 0.1
+beta = 0.5
 betaeffect = 0
 attractor_value = 0.1
 
@@ -1496,12 +1497,11 @@ for d in d_list:
 for r in r_list:
     for d in d_list:
         for group_num in group_num_list:
-            #parallel_group_decouple_stable(network_type, N, beta, betaeffect, seed_list, d, group_num, dynamics, arguments, attractor_value, r, space, partition_indicator)
+            parallel_group_decouple_stable(network_type, N, beta, betaeffect, seed_list, d, group_num, dynamics, arguments, attractor_value, r, space, partition_indicator)
             #parallel_group_decouple_nn_stable(network_type, N, beta, betaeffect, seed_list, d, group_num, dynamics, arguments, attractor_value, r, space, iteration_step)
             #parallel_group_iteration_stable(network_type, N, beta, betaeffect, seed_list, d, group_num, dynamics, arguments, attractor_value, space, iteration_step)
             #parallel_group_iteration_two_cluster_stable(network_type, N, beta, betaeffect, seed_list, d, group_num, dynamics, arguments, attractor_value, space, iteration_step, diff_states)
             #parallel_group_iteration_adaptive_two_cluster_stable(network_type, N, beta, betaeffect, seed_list, d, group_num, dynamics, arguments, attractor_value, space, iteration_step, diff_states, xs_high_criteria)
-            group_iteration_adaptive_two_cluster_stable_improve(network_type, N, beta, betaeffect, seed, d, group_num, dynamics, arguments, attractor_value, space, iteration_step, diff_states)
             pass
         #parallel_three_level_stable(network_type, N, beta, betaeffect, seed_list, d, dynamics, arguments, attractor_value)
         pass

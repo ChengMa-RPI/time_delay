@@ -92,6 +92,10 @@ def network_critical_point(dynamics, network_type, N, seed, d, critical_type, th
     """
     file_A = '../data/A_matrix/' + network_type + '/' + f'N={N}_d={d}_seed={seed}_A.npz'
     A = scipy.sparse.load_npz(file_A).toarray()
+    degrees = np.sum(A, 0)
+    kmean = np.mean(degrees)
+    h1 = np.mean(degrees ** 2) / kmean - kmean
+    h2 = np.sum(np.abs(degrees.reshape(len(degrees), 1) - degrees)) / N**2 / kmean
     des_xs_multi = '../data/' + dynamics + '/' + network_type + '/xs_bifurcation/xs_multi/'
     des_file = des_xs_multi + f'N={N}_d={d}_seed={seed}.csv'
     data = np.array(pd.read_csv(des_file, header=None))
@@ -108,7 +112,7 @@ def network_critical_point(dynamics, network_type, N, seed, d, critical_type, th
         critical_weight = weight_list[index[0]]
     else:
         critical_weight = None
-    df = pd.DataFrame(np.array([d, seed, critical_weight], dtype='object').reshape(1, 3))
+    df = pd.DataFrame(np.array([d, seed, kmean, h1, h2, critical_weight], dtype='object').reshape(1, 6))
     df.to_csv(wc_file, index=None, header=None, mode='a')
     return None
 
@@ -147,6 +151,10 @@ def group_critical_point(dynamics, network_type, N, seed, d, m, space, tradeoff_
     """
     file_A = '../data/A_matrix/' + network_type + '/' + f'N={N}_d={d}_seed={seed}_A.npz'
     A = scipy.sparse.load_npz(file_A).toarray()
+    degrees = np.sum(A, 0)
+    kmean = np.mean(degrees)
+    h1 = np.mean(degrees ** 2) / kmean - kmean
+    h2 = np.sum(np.abs(degrees.reshape(len(degrees), 1) - degrees)) / N**2 / kmean
     G = nx.from_numpy_array(A)
     N_actual = len(A)
     feature = feature_from_network_topology(A, G, space, tradeoff_para, method)
@@ -170,7 +178,7 @@ def group_critical_point(dynamics, network_type, N, seed, d, m, space, tradeoff_
         critical_weight = weight_list[index[0]]
     else:
         critical_weight = None
-    df = pd.DataFrame(np.array([d, seed, critical_weight], dtype='object').reshape(1, 3))
+    df = pd.DataFrame(np.array([d, seed, kmean, h1, h2, critical_weight], dtype='object').reshape(1, 6))
     df.to_csv(wc_file, index=None, header=None, mode='a')
     return None
 

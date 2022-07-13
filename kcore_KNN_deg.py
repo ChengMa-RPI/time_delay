@@ -14,7 +14,6 @@ from scipy.integrate import odeint
 import networkx as nx
 import multiprocessing as mp
 import time
-from ddeint import ddeint
 from numpy import linalg as LA
 import pandas as pd 
 import scipy.io

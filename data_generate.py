@@ -21,8 +21,9 @@ from kcore_KNN_deg import group_index_from_feature_Kmeans, feature_from_network_
 from kcore_KNN_degree_partition import mutual_multi, PPI_multi, BDP_multi, SIS_multi, CW_multi, genereg_multi, reducednet_effstate, neighborshell_given_core
 from scipy.optimize import fsolve
 import scipy
+import time
 
-cpu_number = 8
+cpu_number = 4
 
 B = 0.1
 C = 1
@@ -64,7 +65,6 @@ def xs_group_partition_bifurcation(dynamics, arguments, network_type, N, seed, d
 
     """
     A_unit, A_interaction, index_i, index_j, cum_index = network_generate(network_type, N, 1, 0, seed, d)
-    t2 = time.time()
     G = nx.from_numpy_array(A_unit)
     N_actual = len(A_unit)
     k = np.sum(A_unit>0, 0)
@@ -187,7 +187,6 @@ def helper_wc_binary_search(dynamics_func, net_arguments, arguments, attractor_v
     return wl, wr
 
 
-
 def xs_w(dynamics_func, net_arguments, weight, arguments, attractor_value, des_file):
     """TODO: Docstring for wc_m_1.
 
@@ -228,7 +227,10 @@ def xs_rdw(network_type, N, d, seed, dynamics, arguments, attractor_value, wl, w
     :returns: TODO
 
     """
-    dynamics_func = globals()[dynamics + '_multi']
+    if 'high' in dynamics:
+        dynamics_func = globals()[dynamics[:dynamics.find('_high')] + '_multi']
+    else:
+        dynamics_func = globals()[dynamics + '_multi']
     """
     file_A = '../data/A_matrix/' + network_type + '/' + f'N={N}_d={d}_seed={seed}_A.npz'
     A_unit = scipy.sparse.load_npz(file_A).toarray()
@@ -276,18 +278,73 @@ def xs_rdw_parallel(dynamics, arguments, network_type, N, seed_list, d_list, m_l
     """
     des_multi = '../data/' + dynamics + '/' + network_type + '/xs_bifurcation/xs_multi_rdw=0.01/' 
     des_group = '../data/' + dynamics + '/' + network_type + f'/xs_bifurcation/degree_kmeans_space={space}_rdw=0.01/' 
-    file_group = des_group + f'N={N}_d={d}_number_groups={m}_seed={seed}.csv'
-    file_multi = des_multi + f'N={N}_d={d}_seed={seed}.csv'
     for des in [des_multi, des_group]:
-        if not os.path.exists(des_group):
-            os.makedirs(des_group)
+        if not os.path.exists(des):
+            os.makedirs(des)
     p = mp.Pool(cpu_number)
-    p.starmap_async(xs_rdw, [(network_type, N, d, seed, dynamics, arguments, attractor_value, wl, wr, xc1, xc2, m, space, [des_group + f'N={N}_d={d}_number_groups={m}_seed={seed}.csv', des_multi + f'N={N}_d={d}_seed={seed}.csv'][m==N]) for seed, d in zip(seed_list, d_list) for m in m_list]) .get()
+    p.starmap_async(xs_rdw, [(network_type, N, d, seed, dynamics, arguments, attractor_value, wl, wr, xc1, xc2, m, space, [des_group + f'N={N}_d={d}_number_groups={m}_seed={seed}.csv', des_multi + f'N={N}_d={d}_seed={seed}.csv'][int(m==N)]) for seed, d in zip(seed_list, d_list) for m in m_list]) .get()
     p.close()
     p.join()
     return None
 
+def xs_beta(network_type, N, d, seed, dynamics, arguments, attractor_value, beta_list, m, space, des_file):
+    """TODO: Docstring for wc_find.
 
+    :dynamics: TODO
+    :arguments: TODO
+    :wl: TODO
+    :wr: TODO
+    :attractor_value: TODO
+    :: TODO
+    :returns: TODO
+
+    """
+    if 'high' in dynamics:
+        dynamics_func = globals()[dynamics[:dynamics.find('_high')] + '_multi']
+    else:
+        dynamics_func = globals()[dynamics + '_multi']
+    """
+    file_A = '../data/A_matrix/' + network_type + '/' + f'N={N}_d={d}_seed={seed}_A.npz'
+    A_unit = scipy.sparse.load_npz(file_A).toarray()
+    A_index = np.where(A_unit>0)
+    A_interaction = A_unit[A_index]
+    index_i = A_index[0] 
+    index_j = A_index[1] 
+    degree = np.sum(A_unit>0, 1)
+    cum_index = np.hstack((0, np.cumsum(degree)))
+    """
+    A_unit, A_interaction, index_i, index_j, cum_index = network_generate(network_type, N, 1, 0, seed, d)
+    beta_cal = betaspace(A_unit, [0] )[0]
+    weight_list = beta_list / beta_cal 
+    net_arguments = (index_i, index_j, A_interaction, cum_index)
+    if not m == N:
+        G = nx.from_numpy_array(A_unit)
+        feature = feature_from_network_topology(A_unit, G, space, tradeoff_para=0.5, method='degree')
+        group_index = group_index_from_feature_Kmeans(feature, m)
+        A_reduction_deg_part, net_arguments, _ = reducednet_effstate(A_unit, np.zeros(len(A_unit)), group_index)
+    for weight in weight_list:
+        xs_w(dynamics_func, net_arguments, weight, arguments, attractor_value, des_file)
+    return None
+
+def xs_beta_parallel(dynamics, arguments, network_type, N, seed_list, d_list, m_list, attractor_value, beta_list, space):
+    """TODO: Docstring for data_network_sample.
+
+    :network_type: TODO
+    :N: TODO
+    :: TODO
+    :returns: TODO
+
+    """
+    des_multi = '../data/' + dynamics + '/' + network_type + '/xs_bifurcation/xs_multi_beta/' 
+    des_group = '../data/' + dynamics + '/' + network_type + f'/xs_bifurcation/degree_kmeans_space={space}_beta/' 
+    for des in [des_multi, des_group]:
+        if not os.path.exists(des):
+            os.makedirs(des)
+    p = mp.Pool(cpu_number)
+    p.starmap_async(xs_beta, [(network_type, N, d, seed, dynamics, arguments, attractor_value, beta_list, m, space, [des_group + f'N={N}_d={d}_number_groups={m}_seed={seed}.csv', des_multi + f'N={N}_d={d}_seed={seed}.csv'][int(m==N)]) for seed, d in zip(seed_list, d_list) for m in m_list]) .get()
+    p.close()
+    p.join()
+    return None
 
 
 network_type = 'real'
@@ -368,6 +425,46 @@ tradeoff_para = 1
 method = 'degree'
 
 
+dynamics = 'mutual'
+arguments = (B, C, D, E, H, K_mutual)
+attractor_value = 0.1
+
+network_type = 'SF'
+space = 'log'
+N = 1000
+seed_list = [[i, i] for i in range(1, 10)]
+d_list = [[2.5, 999, 3]] * 9
+weight_list = np.round( np.arange(0.01, 0.6, 0.01), 5)
+m_list = np.unique(np.array(np.round([(2**0.25) ** i for i in range(40)], 0), int) )
+ 
+
+
+network_type = 'ER'
+space = 'linear'
+N = 100
+seed_list = [0]
+d_list = [1600]
+weight_list = np.round( np.arange(0.01, 1.001, 0.01), 5)
+m_list = np.arange(1, 51, 1)
+
+network_type = 'SBM_ER'
+space = 'linear'
+N = [33, 33, 34]
+d_list = [np.array([[0.9, 0.001, 0.001], [0.001, 0.5, 0.001], [0.001, 0.001, 0.05]]).tolist()]
+seed_list = [0]
+weight_list = np.round( np.arange(0.01, 1.001, 0.01), 5)
+m_list = np.arange(1, 51, 1)
+
+network_type = 'SF'
+space = 'log'
+N = 100
+seed_list = [[15, 15]]
+d_list = [[2.1, N-1, 1]]
+weight_list = np.round( np.arange(0.01, 0.61, 0.01), 5)
+m_list = np.arange(1, N, 1)
+
+
+
 
 #xs_group_parallel(dynamics, arguments, network_type, N, seed_list, d_list, weight_list, m_list, attractor_value, space, tradeoff_para, method)
 
@@ -379,16 +476,12 @@ N = 1000
 gamma_list = [round(i, 1) if i%1 < 1e-5 else int(i) for i in np.arange(2.1, 5.01, 0.1)]
 kmin_list = [3, 4, 5]
 
-d_list = sum([[[gamma, N-1, kmin]] * 50 for gamma in gamma_list for kmin in kmin_list], [])
+d_list = sum([[[gamma, N-1, kmin]] * 10 for gamma in gamma_list for kmin in kmin_list], [])
 seed_list = [[i, i] for i in range(0, 10)] * len(gamma_list) * len(kmin_list)
 
 
 
 
-dynamics = 'mutual'
-arguments = (B, C, D, E, H, K_mutual)
-attractor_value = 0.1
-wl, wr, xc1, xc2 = 0.01, 1, 5, 5
 
 dynamics = 'CW'
 arguments = (a, b)
@@ -400,8 +493,14 @@ arguments = (B_gene, )
 attractor_value = 100
 wl, wr, xc1, xc2 = 0.01, 1, 1, 1
 
+dynamics = 'mutual'
+arguments = (B, C, D, E, H, K_mutual)
+attractor_value = 0.1
+wl, wr, xc1, xc2 = 0.01, 1, 5, 5
 
 
 m_list = [1, 5, 10, N]
-xs_rdw_parallel(dynamics, arguments, network_type, N, seed_list, d_list, m_list, attractor_value, wl, wr, xc1, xc2, space)
+#xs_rdw_parallel(dynamics, arguments, network_type, N, seed_list, d_list, m_list, attractor_value, wl, wr, xc1, xc2, space)
 
+beta_list = [1, 2, 3, 4, 5, 6, 7]
+#xs_beta_parallel(dynamics, arguments, network_type, N, seed_list, d_list, m_list, attractor_value, beta_list, space)
