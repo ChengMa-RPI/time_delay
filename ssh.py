@@ -313,10 +313,10 @@ des_xs_multi =  dynamics + '/' + network_type + '/' + 'xs_bifurcation/xs_multi_r
 des_ygl_error =  dynamics + '/' + network_type + '/' + 'xs_bifurcation/ygl_error/'
 #transfer_files(des_ygl_error, [])
 
-dynamics = 'CW'
-dynamics = 'CW_high'
 dynamics = 'mutual'
 dynamics = 'genereg'
+dynamics = 'CW_high'
+dynamics = 'CW'
 des_y_multi =  dynamics + '/' + network_type + '/' + 'xs_bifurcation/y_multi_beta/'
 des_y_group =  dynamics + '/' + network_type + '/' + 'xs_bifurcation/y_group_beta/'
 

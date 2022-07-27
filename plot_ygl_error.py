@@ -16,6 +16,7 @@ import itertools
 import seaborn as sns
 import multiprocessing as mp
 
+from collections import Counter
 from scipy.integrate import odeint
 from mutual_framework import network_generate, betaspace
 from kcore_KNN_deg import group_index_from_feature_Kmeans, feature_from_network_topology
@@ -508,10 +509,11 @@ def plot_xs_onenet(network_type, N, d, seed, dynamics, m_list, space, weight_lis
     return None
 
 def y_bifurcation_3d(network_type, N, d_list, seed_list, dynamics, m_list, space, beta_list):
+    letters = list('abcdefghijklmnopqrstuvwxyz')
     cmap = sns.color_palette('flare', as_cmap=True)
     rows, cols = 2, int(len(m_list) / 2)
     fig = plt.figure( figsize=(9, 6 ))
-    gs = mpl.gridspec.GridSpec(nrows=2, ncols=3, height_ratios=[2, 1])
+    gs = mpl.gridspec.GridSpec(nrows=3, ncols=3, height_ratios=[2, 1, 1])
     ax = fig.add_subplot(gs[0, :], projection='3d')
     ax.grid(False)
     ax.xaxis.pane.set_edgecolor('black')
@@ -531,11 +533,10 @@ def y_bifurcation_3d(network_type, N, d_list, seed_list, dynamics, m_list, space
     ax.tick_params(labelsize=16*0.8)
     ax.annotate('(a)', xy=(-0.1, 1.03), xycoords="axes fraction", size=labelsize*0.9)
 
-    letters = list('abcdefghijklmnopqrstuvwxyz')
     des = '../data/' + dynamics + '/' + network_type + '/xs_bifurcation/ygl_beta/'
     m_all = np.unique(np.array(np.round([(2**0.25) ** i for i in range(40)], 0), int) ).tolist() + [N]
     colors=sns.color_palette('hls', 40)
-
+    yi_list_m = []
     for i, m in enumerate(m_list):
         if m == 1:
             linewidth = 3
@@ -553,26 +554,38 @@ def y_bifurcation_3d(network_type, N, d_list, seed_list, dynamics, m_list, space
             beta_unweighted_list = np.log10(h1_list+1)
             beta_unweighted_list = np.log10( h1_list + kmean_list)
         yi_list = np.vstack( (yi_list) ) 
+        yi_list_m.append(yi_list)
         color_i = colors[np.where(m==np.array(m_all))[0][0]]
         for yi, beta_i in zip(yi_list.transpose(), beta_unweighted_list):
             ax.plot3D( np.log(m) * np.ones(len(beta_list)), beta_list[::-1], yi, linestyle='-', linewidth=linewidth, alpha=1/ np.log(m+1)/5, color=color_i , zorder=N / m)
 
-        if m in [4, 64, N]:
-            if m == 4:
-                ax0 = fig.add_subplot(gs[1, 0])
-                title_letter = '(b)'
-            elif m == 64:
-                ax0 = fig.add_subplot(gs[1, 1])
-                title_letter = '(c)'
-            elif m == N:
-                ax0 = fig.add_subplot(gs[1, 2])
-                title_letter = '(d)'
-            simpleaxis(ax0)
-            ax0.plot(beta_list, yi_list, linestyle='-', linewidth=linewidth, alpha=0.05, color=color_i )
+    yi_list_m = np.array(yi_list_m)
+    for i, m in enumerate([4, 64, N]):
+        ax0 = fig.add_subplot(gs[1, i])
+        title_letter = f'({letters[i+1]})'
+        simpleaxis(ax0)
+        print(yi_list)
+        yi_list = yi_list_m[np.where(m == np.array(m_list))[0][0]]
+        ax0.plot(beta_list, yi_list, linestyle='-', linewidth=linewidth, alpha=0.05, color=color_i )
 
-            ax0.annotate(title_letter, xy=(-0.1, 1.03), xycoords="axes fraction", size=labelsize*0.6)
-            title_name = f'$m={m}$'
-            ax0.set_title(title_name, size=labelsize*0.6)
+        ax0.annotate(title_letter, xy=(-0.1, 1.03), xycoords="axes fraction", size=labelsize*0.6)
+        title_name = f'$m={m}$'
+        ax0.set_title(title_name, size=labelsize*0.6)
+
+        
+    for i, m in enumerate([1, 4, 64]):
+        ax0 = fig.add_subplot(gs[2, i])
+        title_letter = f'({letters[i+4]})'
+        simpleaxis(ax0)
+        yi_list = yi_list_m[np.where(m == np.array(m_list))[0][0]]
+        yi_N = yi_list_m[-1]
+        error = np.abs(yi_list - yi_N) / np.abs(yi_list + yi_N)
+        ax0.plot(beta_list, error, linestyle='-', linewidth=linewidth, alpha=0.05, color=color_i )
+
+        ax0.annotate(title_letter, xy=(-0.1, 1.03), xycoords="axes fraction", size=labelsize*0.6)
+        title_name = f'$m={m}$'
+        ax0.set_title(title_name, size=labelsize*0.6)
+
 
     xlabel = '$ \\beta $'
     ylabel = '$y^{(\\mathrm{gl})}$'
@@ -690,11 +703,12 @@ def m_opt_beta_w(dynamics):
     h_plot = []
     kmean_plot = []
     m_opt_list = []
+    d_seed_plot = []
     for d, seed in zip(d_list[:], seed_list[:]):
-        #if hk_ratio_dict[(d, seed)] in ratio_plot:
         beta_unweighted =  kmean_dict[(d, seed)] + h_dict[(d, seed)] 
         h_unweighted = h_dict[(d, seed)]
-        if 2.4 < eval(d)[0] < 4:
+        #if 2.4 < eval(d)[0] < 4:
+        if 2.4 < eval(d)[0] < 4 and 0.5 < h_unweighted < 40:
             h_plot.append(h_dict[(d, seed)])
             kmean_plot.append(kmean_dict[(d, seed)] )
             file_multi = des_multi + f'N={N}_d={eval(d)}_seed={eval(seed)}.csv'
@@ -719,13 +733,23 @@ def m_opt_beta_w(dynamics):
                 error_index.append(error_i)
             m_opt = np.array(m_list + [N])[error_index]
             m_opt_list.append(m_opt)
+            d_seed_plot.append([d, seed])
             #plt.semilogy(beta, m_opt, color=cmap(beta_unweighted/40), alpha=0.3 , label=f'{beta_unweighted}') 
+
+    h_plot = np.array(h_plot)
+    h_index = []
+    h_separate = np.linspace(min(h_plot), max(h_plot) + 1, 10)
+    for h_i, h_j  in zip(h_separate[:-1], h_separate[1:]):
+        hi_index = np.where((h_plot <= h_j ) & (h_plot > h_i))[0]
+        h_index.append(hi_index)
+        mi_opt =  np.array(m_opt_list )[hi_index]
+        plt.plot(beta, np.vstack((mi_opt)).mean(0) , label=f'h={h_i}-{h_j}' )
+
     plt.legend()
 
-    h_plot
 
 
-    return h_plot, kmean_plot, m_opt_list
+    return h_plot, kmean_plot, m_opt_list, d_seed_plot
 
 def yerror_m_beta_illustration(network_type, N, d_list, seed_list, beta_1D_list, dynamics_list, arguments_list, initial_condition_list, m_list, space, beta_list_lists):
     fig = plt.figure( figsize=(12, 9 ))
@@ -1130,7 +1154,6 @@ def plot_xs_onenet_update(network_type, N, d, seed, dynamics, m_list, space, wei
     #plt.close()
     return None
 
-
 def flower_bee(ax1, ax2):
     """TODO: Docstring for flower_bee.
 
@@ -1243,14 +1266,15 @@ beta_list = np.round(np.arange(0.1, 8.1, 0.1), 5)
 
 
 
-dynamics = 'CW'
-beta_list = [20, 30, 40, 50, 60]
 
 dynamics = 'CW_high'
 beta_list = [5, 10, 15, 20, 25]
 
 dynamics = 'genereg'
 beta_list = [1.5, 2.0, 3.0, 4.0, 5.0]
+
+dynamics = 'CW'
+beta_list = [20, 30, 40, 50, 60]
 
 dynamics = 'mutual'
 beta_list = [1.0, 3.0, 5.0, 7.0, 9.0]
@@ -1297,4 +1321,126 @@ error_threshold_list = [0.01, 0.05, 0.1, 0.5]
 
 
 #sns.scatterplot(x=h_plot/kmean_plot, y=h_plot+kmean_plot, hue=np.log(1+m_opt_list), s=10)
+
+
+
+"""
+h_plot, kmean_plot, m_opt_list, d_seed_plot = m_opt_beta_w(dynamics)
+simi_func = lambda x, y: np.sum(np.abs(x-y) / np.abs(x+y) )
+simi_m = np.zeros( (len(m_opt_list), len(m_opt_list)) )
+simi_k = np.zeros( (len(m_opt_list), len(m_opt_list)) )
+network_type = 'SF'
+
+k_list = []
+for d, seed, in d_seed_plot:
+    Ai, A_interaction, index_i, index_j, cum_index = network_generate(network_type, N, 1, 0, eval(seed), eval(d))
+    ki = np.sum(Ai, 0)
+    k_list.append(ki)
+
+k_indicator_fun = lambda k: np.mean(k ** 2)  / np.mean(k)/ ((np.mean(k** 2) / np.mean(k) + np.mean(k)) )
+k_indicator = np.zeros((len(m_opt_list)) )
+for i in range(len(m_opt_list) ):
+    k_indicator[i] = k_indicator_fun(k_list[i]) 
+for i in range(len(m_opt_list)):
+    for j in range(len(m_opt_list)):
+        simi_m[i, j] = simi_func(m_opt_list[i], m_opt_list[j])
+        #simi_m[i, j] = simi_func(y_multi_list[i], y_multi_list[j])
+        simi_k[i, j] = simi_func(k_indicator[i], k_indicator[j])
+masks = ~np.eye(len(m_opt_list) , dtype=bool)
+plt.scatter(simi_m[masks], simi_k[masks])
+
+y_multi_list = []
+des = '../data/' + dynamics + '/' + network_type + '/xs_bifurcation/'
+des_multi = des + 'y_multi_beta/'
+des_group = des + 'y_group_beta/'
+for d, seed, in d_seed_plot:
+    file_multi = des_multi + f'N={N}_d={eval(d)}_seed={eval(seed)}.csv'
+    data = np.array(pd.read_csv(file_multi, header=None))
+    w, beta, y_multi = data.transpose()
+    index_sort = np.argsort(w)
+    w, beta, y_multi = w[index_sort], beta[index_sort], y_multi[index_sort]
+    y_multi_list.append(y_multi)
+
+
+y_multi_list = np.array(y_multi_list)
+index_plot = np.where(4< k_indicator)[0]
+plt.plot(y_multi_list[index_plot].transpose())
+
+"""
+rows, cols = 3, 4
+fig = plt.figure( figsize=(12, 6 ))
+group_1 = [0, 142, 158, 79, 174]
+group_2 = [47, 50, 100, 108, 115]
+group_3 = [20, 86, 145, 148, 171]
+background = [i for i in range(len(m_opt_list)) if i not in group_1 + group_2 + group_3 ]
+gs = mpl.gridspec.GridSpec(nrows=2, ncols=4, height_ratios=[1, 1])
+ax = fig.add_subplot(gs[0, 0])
+simpleaxis(ax)
+ax.plot(beta, np.vstack((np.array(m_opt_list)[background])).transpose(), color='grey', alpha=0.3, linewidth=0.5) 
+ax.plot(beta, np.array(m_opt_list)[group_1[0]], color='tab:blue', alpha=0.8, linewidth=2, label='sample1')
+ax.plot(beta, np.vstack((np.array(m_opt_list)[group_1[1:]])).transpose(), color='tab:blue', alpha=0.8, linewidth=2)
+ax.plot(beta, np.array(m_opt_list)[group_2[0]], color='tab:red', alpha=0.8, linewidth=2, label='sample2')
+ax.plot(beta, np.vstack((np.array(m_opt_list)[group_2[1:]])).transpose(), color='tab:red', alpha=0.8, linewidth=2)
+ax.plot(beta, np.array(m_opt_list)[group_3[0]], color='tab:green', alpha=0.8, linewidth=2, label='sample3')
+ax.plot(beta, np.vstack((np.array(m_opt_list)[group_3[1:]])).transpose(), color='tab:green', alpha=0.8, linewidth=2)
+ax.set_yscale('log')
+ax.legend(fontsize=12, frameon=False, loc=4, bbox_to_anchor=(1.05,0.4) ) 
+
+ax = fig.add_subplot(gs[1, 0])
+simpleaxis(ax)
+for net_i in background + group_1 + group_2 + group_3:
+    ki = k_list[net_i]
+    bins = np.logspace(1, 30, 30, base=1.2)
+    x, y = np.histogram(ki, bins)
+    x = np.cumsum(x[::-1])[::-1]
+    h = np.mean(ki ** 2) / np.mean(ki)
+    counter = Counter(ki)
+    if net_i in group_1:
+        color = 'tab:blue'
+        linewidth = 2
+        alpha = 0.8
+    elif net_i in group_2:
+        color = 'tab:red'
+        linewidth = 2
+        alpha = 0.8
+    elif net_i in group_3:
+        color = 'tab:green'
+        linewidth = 2
+        alpha = 0.8
+    else:
+        color = 'tab:grey'
+        linewidth=0.5
+        alpha = 0.3
+    ax.plot(y[np.where(x>800)[0][-1]: np.where(x>0)[0][-1]], x[np.where(x>800)[0][-1]: np.where(x>0)[0][-1]], color=color, linewidth=linewidth, alpha=alpha)
+    ax.set_yscale('log')
+    ax.set_xscale('log')
+
+
+for i, group_i in enumerate([group_1, group_2, group_3]):
+    ax = fig.add_subplot(gs[0, 1+i])
+    simpleaxis(ax)
+    ax.annotate('sample' + f'{i+1}', xy=(0.3, 1.05), xycoords="axes fraction", size=labelsize*0.5)
+    ax.plot(beta, np.vstack((np.array(m_opt_list)[group_i])).transpose(), alpha=0.8, linewidth=2)
+    ax.set_yscale('log')
+
+    ax = fig.add_subplot(gs[1, 1+i])
+    simpleaxis(ax)
+    for i, net_i in enumerate(group_i):
+        ki = k_list[net_i]
+        bins = np.logspace(1, 30, 30, base=1.2)
+        x, y = np.histogram(ki, bins)
+        x = np.cumsum(x[::-1])[::-1]
+        h = np.mean(ki ** 2) / np.mean(ki)
+        counter = Counter(ki)
+        plt.scatter(y[np.where(x>800)[0][-1]:][1:], x[np.where(x>800)[0][-1]:], label=f'h={round(h,1)}', s=20)
+        ax.set_yscale('log')
+        ax.set_xscale('log')
+        ax.legend(fontsize=10, frameon=False, loc=4, bbox_to_anchor=(1.08,0.48) ) 
+        ax.set_yticklabels([])
+
+fig.text(x=0.5, y=0.01, horizontalalignment='center', s='$k$', size=labelsize*0.6)
+fig.text(x=0.5, y=0.5, horizontalalignment='center', s='$\\beta$', size=labelsize*0.6)
+fig.text(x=0.04, y=0.3, horizontalalignment='center', s='$P(k)$', size=labelsize*0.6)
+fig.text(x=0.04, y=0.75, horizontalalignment='center', s='$m_{\\mathrm{opt}}$', size=labelsize*0.6)
+plt.subplots_adjust(left=0.1, right=0.95, wspace=0.25, hspace=0.45, bottom=0.1, top=0.95)
 
