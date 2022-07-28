@@ -26,7 +26,6 @@ from scipy.signal import find_peaks
 from kcore_KNN_deg import group_index_from_feature_Kmeans, feature_from_network_topology
 from kcore_KNN_degree_partition import mutual_multi, PPI_multi, BDP_multi, SIS_multi, CW_multi, genereg_multi, reducednet_effstate, neighborshell_given_core
 
-cpu_number = 4
 B = 0.1
 C = 1
 K_mutual = 5
@@ -278,6 +277,36 @@ def tau_parallel(network_type, N, seed, d, weight_list, dynamics, arguments, att
 
     return None
 
+def delay_evolution(network_type, N, seed, d, weight, dynamics, arguments, attractor_value, delay):
+    """TODO: Docstring for tau_evolution.
+
+    :network_type: TODO
+    :N: TODO
+    :beta: TODO
+    :seed: TODO
+    :d: TODO
+    :returns: TODO
+
+    """
+    A, A_interaction, index_i, index_j, cum_index = network_generate(network_type, N, weight, 0, seed, d)
+    net_arguments = (index_i, index_j, A_interaction, cum_index)
+    N_actual = np.size(A, 0)
+    initial_condition = np.ones(N_actual) * attractor_value 
+    t = np.arange(0, 1000, 0.01)
+    dynamics_multi = globals()[dynamics + '_multi']
+    xs_multi = odeint(dynamics_multi, initial_condition, t, args=(arguments, net_arguments))[-1]
+    initial_condition  = xs_multi - 0.01
+    t = np.arange(0, 200, 0.001)
+    dyn_all = ddeint_Cheng(mutual_multi_delay, initial_condition, t, *(delay, arguments, net_arguments))[::100]
+    df = pd.DataFrame(np.hstack((t[::100].reshape(len(t[::100]), 1), dyn_all) ))
+    des = '../data/' + 'tau_compare/' 
+    des_file = des + dynamics + '_' + network_type + f'_N={N}_d={d}_seed={seed}_weight={weight}_delay={delay}_evolution.csv'
+    df.to_csv(des_file, header=None, index=None)
+    df = pd.DataFrame(xs_multi.reshape(len(xs_multi), 1))
+    xs_file = des + dynamics + '_' + network_type + f'_N={N}_d={d}_seed={seed}_weight={weight}_xs.csv'
+    df.to_csv(xs_file, header=None, index=None)
+    return None
+
 
 dynamics = 'mutual'
 arguments = (B, C, D, E, H, K_mutual)
@@ -305,4 +334,9 @@ delay1 = 0.1
 delay2 = 1
 criteria_delay = 0.01
 criteria_dyn = 1e-3
-tau_parallel(network_type, N, seed, d, weight_list, dynamics, arguments, attractor_value, delay1, delay2, criteria_delay, criteria_dyn, space, tradeoff_para, method, tau_list, nu_list)
+#tau_parallel(network_type, N, seed, d, weight_list, dynamics, arguments, attractor_value, delay1, delay2, criteria_delay, criteria_dyn, space, tradeoff_para, method, tau_list, nu_list)
+weight_list = [0.05, 0.1, 0.5, 1.0]
+delay_list = [[0.25, 0.26, 0.27, 0.28], [0.25, 0.26, 0.27, 0.28], [0.22, 0.23, 0.24, 0.25], [0.19, 0.2, 0.21, 0.22]]
+for weight in weight_list:
+    for delay in delay_list:
+        delay_evolution(network_type, N, seed, d, weight, dynamics, arguments, attractor_value, delay)
