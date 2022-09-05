@@ -48,7 +48,7 @@ def mutual_multi_delay(f, x0, x, t, dt, d, arguments, net_arguments):
 
 
 class Tau_Solution():
-    def __init__(self, network_type, N, d, seed, m_list, dynamics, weight_list, arguments, attractor_value, tau_list, nu_list, delay1, delay2):
+    def __init__(self, network_type, N, d, seed, m_list, dynamics, weight_list, arguments, attractor_value, tau_list, nu_list, delay1, delay2, criteria_delay=1e-2, criteria_dyn=1e-3):
         """TODO: Docstring for __init__.
 
         :arg1: TODO
@@ -77,6 +77,8 @@ class Tau_Solution():
         self.nu_list = nu_list
         self.delay1 = delay1
         self.delay2 = delay2
+        self.criteria_delay = criteria_delay
+        self.criteria_dyn = criteria_dyn
 
 
     def get_feature(self, weight):
@@ -185,12 +187,14 @@ class Tau_Solution():
         tau_m.to_csv(save_file, index=None, header=None, mode='a')
         return tau_critical
 
-    def tau_evolution(self, weight, m, save_file, criteria_delay=1e-2, criteria_dyn=1e-3):
+    def tau_evolution(self, weight, m, save_file):
         """TODO: Docstring for tau_evolution.
          
         :returns: TODO
         
         """
+        criteria_dyn = self.criteria_dyn
+        criteria_delay = self.criteria_delay
         delay1 = self.delay1
         delay2 = self.delay2
         if m == self.N_actual:
@@ -215,7 +219,11 @@ class Tau_Solution():
                 delay1 = np.round(delay1 + delta_delay/2, 10)
             elif result[delay1] > criteria_dyn or np.isnan(result[delay1]):
                 delay2 = np.round(delay1, 10)
-                delay1 = np.round(delay1 - delta_delay, 10)
+                delay1 = max(1e-3, np.round(delay1 - delta_delay, 10))
+            elif result[delay2] < criteria_dyn:
+                delay1 = delay2
+                delay2 = delay2 * 2
+
             delta_delay = delay2 - delay1 
         delay_m = pd.DataFrame(np.array([m, delay1]).reshape(1, 2) )
         delay_m.to_csv(save_file, index=None, header=None, mode='a')
@@ -232,7 +240,25 @@ class Tau_Solution():
             if method_type == 'eigen':
                 self.tau_eigen(weight, m, save_file)
             else:
+                self.tau_evolution_refine(weight, m)
                 self.tau_evolution(weight, m, save_file)
+
+    def tau_evolution_refine(self, weight, m):
+        """TODO: Docstring for tau_evolution_refine.
+
+        :arg1: TODO
+        :returns: TODO
+
+        """
+        filename = '../data/tau_gross/' + self.dynamics + '/' + self.network_type + '/' + 'evolution' + f'/N={self.N}_d={self.d}_seed={self.seed}_weight={weight}.csv'
+        if os.path.exists(filename):
+            data = np.array(pd.read_csv(filename, header=None))
+            m_list, tau_list = data.transpose()
+            tau_c = tau_list[np.argmin(np.abs(m_list - m))]
+            self.delay1 = tau_c 
+            self.delay2 = tau_c + 0.01
+
+
 
     def tau_parallel(self, cpu_number, method_type):
         """TODO: Docstring for tau_evolution_parallel.
