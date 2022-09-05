@@ -39,16 +39,49 @@ def mutual_multi_delay(f, x0, x, t, dt, d, arguments, net_arguments):
     xd = np.where(t>d, f[index], x0)
     B, C, D, E, H, K = arguments
     index_i, index_j, A_interaction, cum_index = net_arguments
-    #x[np.where(x<0)] = 0  # Negative x is forbidden
     sum_f = B + x * (1 - xd/K) * ( x/C - 1)
     sum_g = A_interaction * x[index_j] / (D + E * x[index_i] + H * x[index_j])
     dxdt = sum_f + x * np.add.reduceat(sum_g, cum_index[:-1])
     return dxdt
 
+def genereg_multi_delay(f, x0, x, t, dt, d, arguments, net_arguments):
+    """original dynamics N species interaction.
+
+    :x: N dynamic variables, 1 * N vector 
+    :returns: derivative of x 
+
+    """
+    index = int(round((t-d)/dt))
+    xd = np.where(t>d, f[index], x0)
+    B, = arguments
+    index_i, index_j, A_interaction, cum_index = net_arguments
+    sum_f = - B * xd
+    sum_g = A_interaction * x[index_j]**2/(x[index_j]**2+1)
+    dxdt = sum_f + np.add.reduceat(sum_g, cum_index[:-1])
+
+    return dxdt
+
+def CW_multi_delay(f, x0, x, t, dt, d, arguments, net_arguments):
+    """original dynamics N species interaction.
+
+    :x: N dynamic variables, 1 * N vector 
+    :returns: derivative of x 
+
+    """
+    index = int(round((t-d)/dt))
+    xd = np.where(t>d, f[index], x0)
+    a, b = arguments
+    index_i, index_j, A_interaction, cum_index = net_arguments
+    sum_f = - xd
+    sum_g = A_interaction / (1 + np.exp(a - b * x[index_j]))
+    dxdt = sum_f + np.add.reduceat(sum_g, cum_index[:-1])
+    return dxdt
+
+
 
 
 class Tau_Solution():
-    def __init__(self, network_type, N, d, seed, m_list, dynamics, weight_list, arguments, attractor_value, tau_list, nu_list, delay1, delay2, criteria_delay=1e-2, criteria_dyn=1e-3):
+    def __init__(self, network_type, N, d, seed, m_list, dynamics, weight_list, arguments, attractor_value, tau_list, nu_list, delay1, delay2, criteria_delay=1e-3, criteria_dyn=1e-3):
         """TODO: Docstring for __init__.
 
         :arg1: TODO
@@ -131,16 +164,22 @@ class Tau_Solution():
 
         """
         A_T = A.transpose()
+        xs_T = xs.reshape(len(xs), 1)
         if self.dynamics == 'mutual':
             B, C, D, E, H, K = self.arguments
             fx = (1-xs/K) * (2*xs/C-1)
             fxt = -xs/K*(xs/C-1)
-            xs_T = xs.reshape(len(xs), 1)
 
             "A_ij: interaction from j to i, should be transposed to A_ji for directed networks (dimension reduction)"
             denominator = D + E * xs + H * xs_T
             gx_i = np.sum(A_T * (xs_T/denominator - E * xs * xs_T/denominator ** 2 ), 0)
             gx_j = A_T * (xs/denominator - H * xs * xs_T/denominator ** 2 )
+        elif self.dynamics == 'genereg':
+            B, = self.arguments
+            fx = 0
+            fxt = -B * np.ones(self.N_actual)
+            gx_i = 0
+            gx_j = A_T * (2 * xs / (xs**2+1)**2) 
 
         return fx, fxt, gx_i, gx_j
 
@@ -250,7 +289,7 @@ class Tau_Solution():
         :returns: TODO
 
         """
-        filename = '../data/tau_gross/' + self.dynamics + '/' + self.network_type + '/' + 'evolution' + f'/N={self.N}_d={self.d}_seed={self.seed}_weight={weight}.csv'
+        filename = '../data/tau/' + self.dynamics + '/' + self.network_type + '/' + 'evolution_gross' + f'/N={self.N}_d={self.d}_seed={self.seed}_weight={weight}.csv'
         if os.path.exists(filename):
             data = np.array(pd.read_csv(filename, header=None))
             m_list, tau_list = data.transpose()
@@ -292,6 +331,9 @@ K_mutual = 5
 D = 5 
 E = 0.9
 H = 0.1
+B_gene = 1 
+a = 5
+b = 1
 
 cpu_number = 4
 N = 1000
@@ -308,6 +350,25 @@ tau_list = np.arange(0.2, 0.5, 0.1)
 nu_list = np.arange(1, 10, 1)
 delay1 = 0.1
 delay2 = 1
+
+dynamics = 'CW'
+arguments = (a, b)
+
+"genereg"
+dynamics = 'genereg'
+arguments = (B_gene, )
+weight_list = np.round(np.arange(0.05, 1.01, 0.05), 5)
+attractor_value = 10
+tau_list = np.arange(1, 2, 0.5)
+nu_list = np.arange(0.1, 1, 0.2)
+delay1 = 1
+delay2 = 2
+
+
+
+
+
+
 
 seed_list = [[i, i] for i in range(10)]
 if __name__ == "__main__":
