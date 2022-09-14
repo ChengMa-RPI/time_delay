@@ -77,6 +77,34 @@ def CW_multi_delay(f, x0, x, t, dt, d, arguments, net_arguments):
     dxdt = sum_f + np.add.reduceat(sum_g, cum_index[:-1])
     return dxdt
 
+def test_odeint_ddeint(weight, m):
+    """TODO: Docstring for test_odeint.
+
+    :arg1: TODO
+    :returns: TODO
+
+    """
+
+    dynamics = 'mutual'
+    arguments = (B, C, D, E, H, K_mutual)
+    ts = Tau_Solution(network_type, N, d, seed, m_list, dynamics, weight_list, arguments, attractor_value, tau_list, nu_list, delay1, delay2)
+    if m == ts.N_actual:
+        xs = ts.simu_xs_multi(weight)
+        A = ts.A_unit * weight
+        net_arguments = (ts.index_i, ts.index_j, weight * ts.A_interaction, ts.cum_index)
+    else:
+        xs, A, net_arguments, group_index = ts.simu_xs_group(weight, m)
+
+    initial_condition  = xs - 0.01
+    dt = 0.001
+    t = np.arange(0, 100, dt)
+    delay = 0.2
+    t2 = time.time()
+    xd_ddeint = ddeint_Cheng(mutual_multi_delay, initial_condition, t, *(delay, ts.arguments, net_arguments))
+    t3 = time.time()
+    t_ddeint = t3 - t2
+    return xd_ddeint, t_ddeint
+
 
 
 
@@ -177,7 +205,7 @@ class Tau_Solution():
         elif self.dynamics == 'genereg':
             B, = self.arguments
             fx = 0
-            fxt = -B * np.ones(self.N_actual)
+            fxt = -B * np.ones(len(A_T))
             gx_i = 0
             gx_j = A_T * (2 * xs / (xs**2+1)**2) 
 
@@ -197,7 +225,7 @@ class Tau_Solution():
         zeropoint = eigenvalue[np.argmin(np.abs(eigenvalue))]
         return np.array([np.real(zeropoint), np.imag(zeropoint)])
 
-    def tau_eigen(self, weight, m, save_file):
+    def tau_eigen(self, weight, m):
         """TODO: Docstring for eigen_fg.
 
         :returns: TODO
@@ -219,14 +247,14 @@ class Tau_Solution():
             eigen_real, eigen_imag = self.eigenvalue_zero(np.array([tau_solution, nu_solution]), fx, fxt, gx_i, gx_j)
             if abs(eigen_real) < 1e-5 and abs(eigen_imag) < 1e-5:
                 tau_sol.append(tau_solution)
+            else:
+                tau_sol.append(0)  # fake data no solution as 0
         tau_sol = np.array(tau_sol)
         tau_critical = np.min(tau_sol[tau_sol>0])
         tau_m = pd.DataFrame(np.array([m, tau_critical]).reshape(1, 2) )
-        print(tau_m)
-        tau_m.to_csv(save_file, index=None, header=None, mode='a')
-        return tau_critical
+        return tau_m, tau_sol
 
-    def tau_evolution(self, weight, m, save_file):
+    def tau_evolution(self, weight, m):
         """TODO: Docstring for tau_evolution.
          
         :returns: TODO
@@ -265,7 +293,6 @@ class Tau_Solution():
 
             delta_delay = delay2 - delay1 
         delay_m = pd.DataFrame(np.array([m, delay1]).reshape(1, 2) )
-        delay_m.to_csv(save_file, index=None, header=None, mode='a')
         return delay_m
 
     def tau_mlist(self, weight, save_file, method_type):
@@ -275,12 +302,21 @@ class Tau_Solution():
         :returns: TODO
 
         """
+        tau_list = self.tau_list
+        nu_list = self.nu_list
+        initial_conditions = np.array(np.meshgrid(tau_list, nu_list)).reshape(2, int(np.size(tau_list) * np.size(nu_list))).transpose()
+        filename = save_file
         for m in self.m_list:
             if method_type == 'eigen':
-                self.tau_eigen(weight, m, save_file)
-            else:
+                tau_m, _ = self.tau_eigen(weight, m)
+            elif method_type == 'evolution':
                 self.tau_evolution_refine(weight, m)
-                self.tau_evolution(weight, m, save_file)
+                tau_m = self.tau_evolution(weight, m, save_file)
+            else:
+                _, tau_sol = self.tau_eigen(weight, m)
+                tau_m = pd.DataFrame(np.hstack(( initial_conditions, tau_sol.reshape(len(tau_sol), 1) )) )
+                filename = save_file + f'_m={m}.csv'
+            tau_m.to_csv(filename, index=None, header=None, mode='a')
 
     def tau_evolution_refine(self, weight, m):
         """TODO: Docstring for tau_evolution_refine.
@@ -297,7 +333,67 @@ class Tau_Solution():
             self.delay1 = tau_c 
             self.delay2 = tau_c + 0.01
 
+    def tau_evolution_save(self, weight, m, delay_list, t, interval, des):
+        """TODO: Docstring for tau_evolution_refine.
 
+        :arg1: TODO
+        :returns: TODO
+
+        """
+        if m == self.N_actual:
+            xs = self.simu_xs_multi(weight)
+            A = self.A_unit * weight
+            net_arguments = (self.index_i, self.index_j, weight * self.A_interaction, self.cum_index)
+        else:
+            xs, A, net_arguments, group_index = self.simu_xs_group(weight, m)
+        initial_condition  = xs - 0.01
+        for delay in delay_list:
+            des_file = des + f'm={m}_d={self.d}_seed={self.seed}_weight={weight}_delay={delay}.csv'
+            if not os.path.exists(des_file):
+                dyn_all = ddeint_Cheng(self.dynamics_multi_delay, initial_condition, t, *(delay, self.arguments, net_arguments))[::interval]
+                df = pd.DataFrame(np.hstack((t[::interval].reshape(len(t[::interval]), 1), dyn_all) ))
+                df.to_csv(des_file, header=None, index=None)
+        return None
+
+    def tau_data_parallel(self, m_list, weight, interval=1, delay_list=None):
+        """TODO: Docstring for tau_eigen_mlist.
+
+        :weight: TODO
+        :returns: TODO
+
+        """
+        if delay_list == None:
+            filename = '../data/tau/' + self.dynamics + '/' + self.network_type + '/' + 'evolution' + f'/N={self.N}_d={self.d}_seed={self.seed}_weight={weight}.csv'
+            if os.path.exists(filename):
+                data = np.array(pd.read_csv(filename, header=None))
+                m_all, tau_c = data.transpose()
+                delay_lists = []
+                for m in m_list:
+                    tau_i = round(tau_c[np.abs(m_all - m) <1e-2][0], 2)
+                    delay_list = np.round([tau_i + i for i in [-0.02, -0.01, 0, 0.01, 0.02]], 2)
+                    delay_lists.append(delay_list)
+            else:
+                print("there is no critical delay calculated, please do this first!")
+                return None
+        else:
+            delay_lists = [delay_list] * len(m_list)
+        dt = 0.001
+        if interval == 1000:
+            t = np.arange(0, 200, dt)
+            des = '../data/tau/' + self.dynamics + '/' + self.network_type + '/evolution_data/'
+        elif interval == 1:
+            t = np.arange(0, 50, dt)
+            des = '../data/tau/' + self.dynamics + '/' + self.network_type + '/evolution_detail_data/'
+        else:
+            print('check the interval')
+            return None
+        if not os.path.exists(des):
+            os.makedirs(des)
+        p = mp.Pool(cpu_number)
+        p.starmap_async(self.tau_evolution_save, [(weight, m, delay_list, t, interval, des) for m, delay_list in zip(m_list, delay_lists)]).get()
+        p.close()
+        p.join()
+        return None
 
     def tau_parallel(self, cpu_number, method_type):
         """TODO: Docstring for tau_evolution_parallel.
@@ -312,16 +408,17 @@ class Tau_Solution():
 
         if method_type == 'eigen':
             des = '../data/' + '/tau/' + self.dynamics + '/' + self.network_type + '/eigen/' 
-        else:
+        elif method_type == 'evolution':
             des = '../data/' + '/tau/' + self.dynamics + '/' + self.network_type + '/evolution/' 
+        else:
+            des = '../data/' + '/tau/' + self.dynamics + '/' + self.network_type + '/tau_initial_condition/' 
         if not os.path.exists(des):
             os.makedirs(des)
         p = mp.Pool(cpu_number)
-        p.starmap_async(self.tau_mlist, [(weight, des + f'N={self.N}_d={self.d}_seed={self.seed}_weight={weight}.csv', method_type) for weight in self.weight_list]).get()
+        p.starmap_async(self.tau_mlist, [(weight, des + f'N={self.N}_d={self.d}_seed={self.seed}_weight={weight}', method_type) for weight in self.weight_list]).get()
         p.close()
         p.join()
         return None
-
 
 
 
@@ -342,15 +439,6 @@ d = [2.5, 999, 3]
 seed = [0, 0]
 m_list = np.unique(np.array(np.round([(2**0.25) ** i for i in range(40)], 0), int) ).tolist() + [N]
 
-dynamics = 'mutual'
-arguments = (B, C, D, E, H, K_mutual)
-weight_list = np.round(np.arange(0.05, 1.01, 0.05), 5)
-attractor_value = 5
-tau_list = np.arange(0.2, 0.5, 0.1)
-nu_list = np.arange(1, 10, 1)
-delay1 = 0.1
-delay2 = 1
-
 dynamics = 'CW'
 arguments = (a, b)
 
@@ -364,18 +452,32 @@ nu_list = np.arange(0.1, 1, 0.2)
 delay1 = 1
 delay2 = 2
 
+dynamics = 'mutual'
+arguments = (B, C, D, E, H, K_mutual)
+weight_list = np.round(np.arange(0.1, 1.01, 0.1), 5)
+attractor_value = 5
+tau_list = np.arange(0.01, 0.9, 0.01)
+nu_list = np.arange(0.1, 10, 0.1)
+delay1 = 0.1
+delay2 = 1
 
 
 
-
-
-
-seed_list = [[i, i] for i in range(10)]
+seed_list = [[i, i] for i in range(1, 10, 1)]
 if __name__ == "__main__":
     for seed in seed_list:
+        m_list = np.unique(np.array(np.round([(2**1) ** i for i in range(10)], 0), int) ).tolist() + [N]
         ts = Tau_Solution(network_type, N, d, seed, m_list, dynamics, weight_list, arguments, attractor_value, tau_list, nu_list, delay1, delay2)
     
-        ts.tau_parallel(cpu_number, 'evolution')
-        ts.tau_parallel(cpu_number, 'eigen')
+        #ts.tau_parallel(cpu_number, 'evolution')
+        #ts.tau_parallel(cpu_number, 'eigen')
+        ts.tau_parallel(cpu_number, 'eigen_all')
+        weight = 0.1
+        m_evo = np.unique(np.array(np.round([(2**1) ** i for i in range(10)], 0), int) ).tolist() + [N]
+        m_evo = [16]
+        delay_list_list = [[0.19], [0.22], [0.25], [0.28]]
+        for delay_list in delay_list_list:
+            #ts.tau_data_parallel(m_evo, weight, interval=1, delay_list=delay_list)
+            pass
 
 
