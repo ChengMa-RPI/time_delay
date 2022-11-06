@@ -88,7 +88,7 @@ def test_odeint_ddeint(weight, m):
     dynamics = 'mutual'
     arguments = (B, C, D, E, H, K_mutual)
     ts = Tau_Solution(network_type, N, d, seed, m_list, dynamics, weight_list, arguments, attractor_value, tau_list, nu_list, delay1, delay2)
-    if m == ts.N_actual:
+    if m >= ts.N_actual:
         xs = ts.simu_xs_multi(weight)
         A = ts.A_unit * weight
         net_arguments = (ts.index_i, ts.index_j, weight * ts.A_interaction, ts.cum_index)
@@ -140,6 +140,24 @@ class Tau_Solution():
         self.delay2 = delay2
         self.criteria_delay = criteria_delay
         self.criteria_dyn = criteria_dyn
+
+    def get_ygl_from_group(self, xs_group, weight):
+        """TODO: Docstring for get_ygl_from_group.
+
+        :xs_group: TODO
+        :m: TODO
+        :returns: TODO
+
+        """
+        A = self.A_unit * weight
+        tlength, m = len(xs_group), len(xs_group[0])
+        xs_individual = np.zeros((tlength, len(self.A_unit)) )
+        feature = self.get_feature(weight)
+        group_index = group_index_from_feature_Kmeans(feature, m)
+        for i, group_i in enumerate(group_index):
+            xs_individual[:, group_i] = xs_group[:, i:i+1]
+        y_gl = betaspace(A, xs_individual)[-1]
+        return y_gl
 
 
     def get_feature(self, weight):
@@ -231,7 +249,7 @@ class Tau_Solution():
         :returns: TODO
 
         """
-        if m == self.N_actual:
+        if m >= self.N_actual:
             xs = self.simu_xs_multi(weight)
             A = self.A_unit * weight
         else:
@@ -264,7 +282,7 @@ class Tau_Solution():
         criteria_delay = self.criteria_delay
         delay1 = self.delay1
         delay2 = self.delay2
-        if m == self.N_actual:
+        if m >= self.N_actual:
             xs = self.simu_xs_multi(weight)
             A = self.A_unit * weight
             net_arguments = (self.index_i, self.index_j, weight * self.A_interaction, self.cum_index)
@@ -305,13 +323,13 @@ class Tau_Solution():
         tau_list = self.tau_list
         nu_list = self.nu_list
         initial_conditions = np.array(np.meshgrid(tau_list, nu_list)).reshape(2, int(np.size(tau_list) * np.size(nu_list))).transpose()
-        filename = save_file
+        filename = save_file + '.csv'
         for m in self.m_list:
             if method_type == 'eigen':
                 tau_m, _ = self.tau_eigen(weight, m)
             elif method_type == 'evolution':
                 self.tau_evolution_refine(weight, m)
-                tau_m = self.tau_evolution(weight, m, save_file)
+                tau_m = self.tau_evolution(weight, m)
             else:
                 _, tau_sol = self.tau_eigen(weight, m)
                 tau_m = pd.DataFrame(np.hstack(( initial_conditions, tau_sol.reshape(len(tau_sol), 1) )) )
@@ -340,7 +358,7 @@ class Tau_Solution():
         :returns: TODO
 
         """
-        if m == self.N_actual:
+        if m >= self.N_actual:
             xs = self.simu_xs_multi(weight)
             A = self.A_unit * weight
             net_arguments = (self.index_i, self.index_j, weight * self.A_interaction, self.cum_index)
@@ -351,6 +369,10 @@ class Tau_Solution():
             des_file = des + f'm={m}_d={self.d}_seed={self.seed}_weight={weight}_delay={delay}.csv'
             if not os.path.exists(des_file):
                 dyn_all = ddeint_Cheng(self.dynamics_multi_delay, initial_condition, t, *(delay, self.arguments, net_arguments))[::interval]
+                if interval == 1: # if interval == 1, only save global states
+                    dyn_all = self.get_ygl_from_group(dyn_all, weight)
+                    print(m, dyn_all.shape)
+                    dyn_all = dyn_all.reshape(len(dyn_all), 1)
                 df = pd.DataFrame(np.hstack((t[::interval].reshape(len(t[::interval]), 1), dyn_all) ))
                 df.to_csv(des_file, header=None, index=None)
         return None
@@ -382,8 +404,8 @@ class Tau_Solution():
             t = np.arange(0, 200, dt)
             des = '../data/tau/' + self.dynamics + '/' + self.network_type + '/evolution_data/'
         elif interval == 1:
-            t = np.arange(0, 50, dt)
-            des = '../data/tau/' + self.dynamics + '/' + self.network_type + '/evolution_detail_data/'
+            t = np.arange(0, 200, dt)
+            des = '../data/tau/' + self.dynamics + '/' + self.network_type + '/evolution_detail_data_ygl/'
         else:
             print('check the interval')
             return None
@@ -463,7 +485,7 @@ delay2 = 1
 
 
 
-seed_list = [[i, i] for i in range(1, 10, 1)]
+seed_list = [[i, i] for i in range(0, 1, 1)]
 if __name__ == "__main__":
     for seed in seed_list:
         m_list = np.unique(np.array(np.round([(2**1) ** i for i in range(10)], 0), int) ).tolist() + [N]
@@ -471,13 +493,13 @@ if __name__ == "__main__":
     
         #ts.tau_parallel(cpu_number, 'evolution')
         #ts.tau_parallel(cpu_number, 'eigen')
-        ts.tau_parallel(cpu_number, 'eigen_all')
+        #ts.tau_parallel(cpu_number, 'eigen_all')
         weight = 0.1
         m_evo = np.unique(np.array(np.round([(2**1) ** i for i in range(10)], 0), int) ).tolist() + [N]
-        m_evo = [16]
+        m_evo = [1, 4, 16, N]
         delay_list_list = [[0.19], [0.22], [0.25], [0.28]]
         for delay_list in delay_list_list:
-            #ts.tau_data_parallel(m_evo, weight, interval=1, delay_list=delay_list)
+            ts.tau_data_parallel(m_evo, weight, interval=1, delay_list=delay_list)
             pass
 
 

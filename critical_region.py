@@ -12,6 +12,7 @@ import matplotlib.pyplot as plt
 import pandas as pd 
 from cycler import cycler
 import matplotlib as mpl
+import matplotlib.gridspec as gridspec
 import itertools
 import seaborn as sns
 import multiprocessing as mp
@@ -56,7 +57,58 @@ marksize = 8
 
 mpl.rcParams['axes.prop_cycle'] = (cycler(color=['#fc8d62',  '#66c2a5', '#e78ac3','#a6d854',  '#8da0cb', '#ffd92f','#b3b3b3', '#e5c494', '#7fc97f', '#beaed4', '#ffff99' ])  * cycler(linestyle=['-']))
 
+class SeabornFig2Grid():
 
+    def __init__(self, seaborngrid, fig,  subplot_spec):
+        self.fig = fig
+        self.sg = seaborngrid
+        self.subplot = subplot_spec
+        if isinstance(self.sg, sns.axisgrid.FacetGrid) or \
+            isinstance(self.sg, sns.axisgrid.PairGrid):
+            self._movegrid()
+        elif isinstance(self.sg, sns.axisgrid.JointGrid):
+            self._movejointgrid()
+        self._finalize()
+
+    def _movegrid(self):
+        """ Move PairGrid or Facetgrid """
+        self._resize()
+        n = self.sg.axes.shape[0]
+        m = self.sg.axes.shape[1]
+        self.subgrid = gridspec.GridSpecFromSubplotSpec(n,m, subplot_spec=self.subplot)
+        for i in range(n):
+            for j in range(m):
+                self._moveaxes(self.sg.axes[i,j], self.subgrid[i,j])
+
+    def _movejointgrid(self):
+        """ Move Jointgrid """
+        h= self.sg.ax_joint.get_position().height
+        h2= self.sg.ax_marg_x.get_position().height
+        r = int(np.round(h/h2))
+        self._resize()
+        self.subgrid = gridspec.GridSpecFromSubplotSpec(r+1,r+1, subplot_spec=self.subplot)
+
+        self._moveaxes(self.sg.ax_joint, self.subgrid[1:, :-1])
+        self._moveaxes(self.sg.ax_marg_x, self.subgrid[0, :-1])
+        self._moveaxes(self.sg.ax_marg_y, self.subgrid[1:, -1])
+
+    def _moveaxes(self, ax, gs):
+        #https://stackoverflow.com/a/46906599/4124317
+        ax.remove()
+        ax.figure=self.fig
+        self.fig.axes.append(ax)
+        self.fig.add_axes(ax)
+        ax._subplotspec = gs
+        ax.set_position(gs.get_position(self.fig))
+        ax.set_subplotspec(gs)
+
+    def _finalize(self):
+        plt.close(self.sg.fig)
+        self.fig.canvas.mpl_connect("resize_event", self._resize)
+        self.fig.canvas.draw()
+
+    def _resize(self, evt=None):
+        self.sg.fig.set_size_inches(self.fig.get_size_inches())
 
 def xs_group_partition_bifurcation(network_type, N, seed, d, weight_list, m_list, attractor_value, space, tradeoff_para, method, des):
     """TODO: Docstring for random_partition.
@@ -825,7 +877,7 @@ def facet_scatter(x, y, c, **kwargs):
 def connect_line(x1, x2, y1, y2, **kwargs):
     plt.plot([x1, x2], [y1, y2], **kwargs)
 
-def change_title_name(ax, title_letter):
+def change_title_name(ax, title_letter, size_ratio=1):
     get_title = ax.get_title().split('|')
     R_type =  get_title[0].split('=')[-2].strip(' ') 
     R_value = get_title[0].split('=')[-1].strip(' ')
@@ -835,10 +887,10 @@ def change_title_name(ax, title_letter):
         color='tab:blue'
     else:
         color = 'tab:green'
-    ax.set_title(f'({title_letter})' + '  ' + rename_title, size=subtitlesize*0.85, color=color)
+    ax.set_title(f'({title_letter})' + '  ' + rename_title, size=subtitlesize*0.85*size_ratio, color=color)
     return None
 
-def facetgrid_wc_N_m_list(dynamics, network_type_list, d_list_list, m_list, critical_type_list, threshold_value_list):
+def facetgrid_wc_N_m_list(dynamics, network_type_list, d_list_list, m_list, critical_type_list, threshold_value_list, size_ratio=1):
     """TODO: Docstring for facetgrid_wc_N_m.
 
     :df: TODO
@@ -867,14 +919,16 @@ def facetgrid_wc_N_m_list(dynamics, network_type_list, d_list_list, m_list, crit
 
     axes = g.fig.axes
     letters = list('abcdefghijklmnopqrstuvwxyz')[:int(len(axes)**0.5)]
+    letters = list('abcdefghijklmnopqrstuvwxyz')[:len(m_list)]
     numbers = np.arange(1, int(len(axes)**0.5)+1).tolist()
+    numbers = np.arange(1, len(threshold_value_list) * len(threshold_value_list[0])+1).tolist()
     title_list = itertools.product(numbers, letters)
 
     for ax, error, title_i in zip(axes, relative_error, title_list):
         ax.plot([np.min(wc_together), np.max(wc_together)], [np.min(wc_together), np.max(wc_together)], '--k', alpha=0.3)
-        ax.text(0.6 * np.max(wc_together), 0.2 * np.max(wc_together), 'Err=' + '{:#.2g}'.format(error), size=anno_size)
-        ax.tick_params(axis='both', which='major', labelsize=ticksize) 
-        change_title_name(ax, title_i[1] + str(title_i[0]))
+        ax.text(0.6 * np.max(wc_together), 0.2 * np.max(wc_together), 'Err=' + '{:#.2g}'.format(error), size=anno_size *size_ratio)
+        ax.tick_params(axis='both', which='major', labelsize=ticksize*size_ratio) 
+        change_title_name(ax, title_i[1] + str(title_i[0]), size_ratio)
     xlabel = '$ w_c^{(original)} $'
     ylabel = '$ w_c^{(reduction)} $'
     g.set_axis_labels('', '')
@@ -882,12 +936,12 @@ def facetgrid_wc_N_m_list(dynamics, network_type_list, d_list_list, m_list, crit
     g.fig.text(x=0.5, y=0.01, horizontalalignment='center', s=xlabel, size=labelsize)
     plt.subplots_adjust(left=0.1, right=0.85, wspace=0.25, hspace=0.25, bottom=0.1, top=0.95)
     save_des = '../manuscript/dimension_reduction_v2_020322/' + dynamics + '_' + ''.join(network_type_list) +  '_wc_N_m.png'
-    plt.savefig(save_des, format='png')
-    plt.close()
+    #plt.savefig(save_des, format='png')
+    #plt.close()
     #plt.show()
-    return None
+    return g
 
-def facetgrid_beta_N_m_list(dynamics, network_type_list, d_list_list, m_list, critical_type_list, threshold_value_list):
+def facetgrid_beta_N_m_list(dynamics, network_type_list, d_list_list, m_list, critical_type_list, threshold_value_list, size_ratio=1, title_modification=0):
     """TODO: Docstring for facetgrid_wc_N_m.
 
     :df: TODO
@@ -926,33 +980,35 @@ def facetgrid_beta_N_m_list(dynamics, network_type_list, d_list_list, m_list, cr
     g.fig.colorbar(points, cax=cax)
     cbar_ticks = cax.get_yticks()
     cax.get_yaxis().set_ticklabels(np.array(10**(cbar_ticks), int), size=ticksize)
-    cax.set_ylabel('$\\beta(w=1)$', fontsize=labelsize)
+    cax.set_ylabel('$\\beta (w=1)$', fontsize=labelsize)
 
     x_max = np.max(np.array(df[['kmean_1', 'kmean_m']]) ) 
     y_max = np.max(np.array(df[['h1_1', 'h1_m']]) ) 
     axes = g.fig.axes
     letters = list('abcdefghijklmnopqrstuvwxyz')[:int(len(axes)**0.5)]
+    letters = list('abcdefghijklmnopqrstuvwxyz')[:len(m_list)]
     numbers = np.arange(1, int(len(axes)**0.5) + 1).tolist()
+    numbers = np.arange(1 + title_modification, len(threshold_value_list) * len(threshold_value_list[0])+1 + title_modification).tolist()
     title_list = itertools.product(numbers, letters)
 
     for ax, d_i, std_i, title_i in zip(axes, distance_mean, distance_std, title_list):
         di_str = '{:#.2g}'.format(d_i) 
         decimal_num = len(''.join(di_str.split('.')[-1]))
-        ax.text(0.45 * x_max, 0.8 * y_max, '$l=$' + di_str + '$\\pm ${0:#.{1}f}'.format(std_i, decimal_num), size=anno_size)
-        ax.tick_params(axis='both', which='major', labelsize=ticksize) 
-        change_title_name(ax, title_i[1] + str(title_i[0]))
-    xlabel = '$ \\langle k \\rangle $'
-    ylabel = '$ h $'
+        ax.text(0.45 * x_max, 0.8 * y_max, '$\\mathcal{l}=$' + di_str + '$\\pm ${0:#.{1}f}'.format(std_i, decimal_num), size=anno_size*size_ratio)
+        ax.tick_params(axis='both', which='major', labelsize=ticksize*size_ratio) 
+        change_title_name(ax, title_i[1] + str(title_i[0]), size_ratio)
+    xlabel = '$ \\langle k \\rangle ^{\\mathrm{wt}} $'
+    ylabel = '$ h^{\\mathrm{wt}} $'
     g.set_axis_labels('', '')
     g.fig.text(x=0.01, y=0.5, verticalalignment='center', s=ylabel, size=labelsize, rotation=90)
     g.fig.text(x=0.5, y=0.01, horizontalalignment='center', s=xlabel, size=labelsize)
     plt.subplots_adjust(left=0.1, right=0.85, wspace=0.25, hspace=0.25, bottom=0.1, top=0.95)
     save_des = '../manuscript/dimension_reduction_v2_020322/' + dynamics + '_' + ''.join(network_type_list) + '_beta_wc_m_1.png'
-    plt.savefig(save_des, format='png')
-    plt.close()
+    #plt.savefig(save_des, format='png')
+    #plt.close()
     #plt.show()
 
-    return None
+    return g
 
 def df_distance_error(dynamics, network_type_list, d_list_list, m_list, critical_type_list, threshold_value_list):
     """TODO: Docstring for similarity_N_m.
@@ -1278,6 +1334,46 @@ def subplots_distance_error_std_m(dynamics_list, network_type_list, d_list_list,
     return None
 
 
+
+
+def facetgrid_wc_compare_beta_hk(dynamics, network_type_list, d_list_list, m_list, critical_type_list, threshold_value_list):
+    """TODO: Docstring for facetgrid_wc_N_m.
+
+    :df: TODO
+    :returns: TODO
+
+    """
+
+    size_ratio = 0.8
+    critical_type_list = ['ygl', 'survival_ratio']
+    threshold_value_list = [[5], [0.5]]
+    fig = plt.figure(figsize=(13,8))
+    gs = gridspec.GridSpec(3, 2, height_ratios=[1, 0.05, 1], width_ratios=[1, 0.02])
+    g0 = facetgrid_wc_N_m_list(dynamics, network_type_list, d_list_list, m_list, critical_type_list, threshold_value_list, size_ratio)
+    g1 = facetgrid_beta_N_m_list(dynamics, network_type_list, d_list_list, m_list, critical_type_list, threshold_value_list, size_ratio, 2)
+    mg0 = SeabornFig2Grid(g0, fig, gs[0, 0])
+    mg1 = SeabornFig2Grid(g1, fig, gs[2, 0])
+
+    cmap = sns.color_palette('flare', as_cmap=True)
+    #cax = fig.add_subplot(gs[:, -1])
+    cax = fig.add_axes([0.91, 0.2, 0.02, 0.6])
+    points = plt.scatter([], [], c=[], vmin=0.03, vmax=np.log10(100), cmap=cmap)
+    plt.colorbar(points, cax=cax)
+    cbar_ticks = cax.get_yticks()
+    cax.get_yaxis().set_ticklabels(np.array(10**(cbar_ticks), int), size=ticksize*size_ratio)
+    cax.set_ylabel('$\\beta(w=1)$', fontsize=labelsize*size_ratio)
+    fig.text(x=0.02, y=0.25, verticalalignment='center', s='$ h^{\\mathrm{wt}} $', size=labelsize*0.8, rotation=90)
+    fig.text(x=0.51, y=0.01, horizontalalignment='center', s='$ \\langle k \\rangle ^{\\mathrm{wt}} $', size=labelsize*0.8)
+
+    fig.text(x=0.02, y=0.75, verticalalignment='center', s='$ w_c^{(m)} $', size=labelsize*0.8, rotation=90)
+    fig.text(x=0.5, y=0.50, horizontalalignment='center', s='$ w_c^{(N)} $', size=labelsize*0.8)
+
+    plt.subplots_adjust(left=0.1, right=0.95, wspace=0.25, hspace=0.25, bottom=0.1, top=0.95)
+    save_des = '../manuscript/dimension_reduction_v2_020322/' + dynamics + '_' + ''.join(network_type_list) +  '_wc_N_m.png'
+    #plt.savefig(save_des, format='png')
+    #plt.close()
+    #plt.show()
+    return None
  
 
 
@@ -1444,10 +1540,6 @@ m_list = [1, 2, 4, 8, 16, 32]
 
 
 
-
-
-
-
 dynamics = 'genereg'
 threshold_value_list = [[0.001, 0.01, 0.1], [0.3, 0.5, 0.7]]
 
@@ -1460,9 +1552,10 @@ threshold_value_list = [[1, 3, 5], [0.3, 0.5, 0.7]]
 
 threshold_value_list_list = [[[1, 3, 5], [0.3, 0.5, 0.7]], [[1, 3, 5], [0.3, 0.5, 0.7]], [[0.001, 0.01, 0.1], [0.3, 0.5, 0.7]], [[1, 3, 5], [0.3, 0.5, 0.7]]]
 dynamics_list = ['mutual', 'CW', 'genereg', 'CW_high']
-for dynamics, threshold_value_list in zip(dynamics_list, threshold_value_list_list):
+for dynamics, threshold_value_list in zip(dynamics_list[:1], threshold_value_list_list[:1]):
     #facetgrid_wc_N_m_list(dynamics, network_type_list, d_list_list, m_list, critical_type_list, threshold_value_list)
     #facetgrid_beta_N_m_list(dynamics, network_type_list, d_list_list, m_list, critical_type_list, threshold_value_list)
+    facetgrid_wc_compare_beta_hk(dynamics, network_type_list, d_list_list, m_list, critical_type_list, threshold_value_list)
     pass
 
 
@@ -1489,4 +1582,4 @@ gamma_list = [round(i, 1) if i%1 > 1e-5 else int(i) for i in np.hstack(( np.aran
 kmin_list = [3, 4, 5]
 d_SF = [[gamma, N-1, kmin] for gamma in gamma_list for kmin in kmin_list]
 d_list_list = [d_SF]
-subplots_distance_error_m_individual(dynamics_list, network_type_list, d_list_list, m_list, critical_type_list, threshold_value_list_list)
+#subplots_distance_error_m_individual(dynamics_list, network_type_list, d_list_list, m_list, critical_type_list, threshold_value_list_list)

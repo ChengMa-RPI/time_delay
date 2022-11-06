@@ -26,6 +26,7 @@ import time
 from netgraph import Graph
 import matplotlib.image as mpimg
 from collections import defaultdict
+from matplotlib.colors import LogNorm
 
 B = 0.1
 C = 1
@@ -454,7 +455,7 @@ def plot_xs_onenet(network_type, N, d, seed, dynamics, m_list, space, weight_lis
 
     ax.set_title('', size=labelsize*0.5)
     ax.set_xlabel('$w$', size=labelsize*0.5)
-    ax.set_ylabel('qualitative precision', size=labelsize*0.5)
+    ax.set_ylabel('precision', size=labelsize*0.45)
 
     ax = fig.add_subplot(gs[2, 4:6])
     ax.annotate(f'({letters[10]})', xy=(-0.1, 1.03), xycoords="axes fraction", size=labelsize*0.6)
@@ -751,7 +752,7 @@ def m_opt_beta_w(dynamics):
 
     return h_plot, kmean_plot, m_opt_list, d_seed_plot
 
-def yerror_m_beta_illustration(network_type, N, d_list, seed_list, beta_1D_list, dynamics_list, arguments_list, initial_condition_list, m_list, space, beta_list_lists):
+def yerror_m_beta_illustration(network_type, N, d_list, seed_list, beta_1D_list, dynamics_list, arguments_list, initial_condition_list, m_list, space, beta_list_lists, beta_c_list, beta_heatmap_list):
     fig = plt.figure( figsize=(12, 9 ))
     gs = mpl.gridspec.GridSpec(nrows=3, ncols=4, height_ratios=[1, 1, 1])
 
@@ -791,8 +792,8 @@ def yerror_m_beta_illustration(network_type, N, d_list, seed_list, beta_1D_list,
         ax1.set_xscale('log')
 
         start_i = [beta_1D[10], beta_1D[-10] ]
-            #for start_i, end_i in zip(start_pos, end_pos):
-            #ax1.annotate("", xy=end_i, xytext=start_i, arrowprops=dict(arrowstyle="->"))
+        #for start_i, end_i in zip(start_pos, end_pos):
+        #ax1.annotate("", xy=end_i, xytext=start_i, arrowprops=dict(arrowstyle="->"))
         if dynamics == 'genereg':
             ax1.set_yscale('symlog', linthresh=1e-2)
             ax1.set_ylim(-1e-3)
@@ -800,6 +801,8 @@ def yerror_m_beta_illustration(network_type, N, d_list, seed_list, beta_1D_list,
         else:
             ax1.set_yscale('log')
 
+    "need to be commented when generating real plots..."
+    #m_list = m_list[::8]    
     for (k, dynamics), beta_list in zip(enumerate(dynamics_list), beta_list_lists):
         ax2 = fig.add_subplot(gs[1, k])
         simpleaxis(ax2)
@@ -838,7 +841,65 @@ def yerror_m_beta_illustration(network_type, N, d_list, seed_list, beta_1D_list,
                 ax2.set_yticks([])
             ax2.tick_params(labelsize=ticksize*0.6)
             ax2.legend(fontsize=legendsize*0.5, frameon=False, loc=4, bbox_to_anchor=(1.38,0) ) 
+            
+    "heatmap: the distance to beta_c"
+    for (k, dynamics), beta_c, beta_heatmap in zip(enumerate(dynamics_list), beta_c_list, beta_heatmap_list):
+        ax3 = fig.add_subplot(gs[2, k])
+        simpleaxis(ax3)
+        ax3.annotate(f'({letters[k+8]})', xy=(-0.1, 1.03), xycoords="axes fraction", size=labelsize*0.6)
 
+        des = '../data/' + dynamics + '/' + network_type + '/xs_bifurcation/ygl_beta/'
+        error_list = []
+        for i, beta in enumerate(beta_heatmap):
+            if type(beta) == float:
+                beta_str = "{.1f}".format(beta)
+            else:
+                beta_str = str(beta)
+
+            file_multi = des + f'm={N}_beta=' + beta_str + '.csv'
+            data = np.array(pd.read_csv(file_multi, header=None))
+            d, seed, kmean, h1, h2, yi = data.transpose()
+            index_select = df_select_d_sort_seed(d, seed, d_list, seed_list)
+            y_multi = np.array(yi[index_select],float)
+            kmean_list = np.array(kmean[index_select], float)
+            h1_list = np.array(h1[index_select], float)
+            beta_unweighted_list = np.log10(h1_list)
+            beta_unweighted_list = h1_list
+            error_mean = []
+            error_std = []
+            for j, m in enumerate(m_list):
+                file_group = des + f'm={m}_beta=' + beta_str + '.csv'
+                data = np.array(pd.read_csv(file_group, header=None))
+                d, seed, kmean, h1, h2, yi = data.transpose()
+                index_select = df_select_d_sort_seed(d, seed, d_list, seed_list)
+                y_group = np.array(yi[index_select],float)
+                error = np.round(np.abs(y_multi - y_group), 10) / (y_multi + y_group)
+                #ax.plot(m*np.ones(len(error)), error, 'o', markersize=5, alpha=0.5, color=colors[j])
+                error_mean.append(np.mean(error) )
+                error_std.append(np.std(error) )
+            error_mean = np.array(error_mean)
+            error_std = np.array(error_std)
+            error_list.append(error_mean)
+
+        error_list = np.vstack((error_list))
+        error_list[error_list < 1e-3] = 1e-3
+
+        m_ticks = m_list[::5]
+        beta_ticks = beta_heatmap[::len(beta_heatmap) // 4] - beta_c
+        sns.heatmap(error_list.transpose()[::-1], vmin=0, vmax=np.max(error_list), cmap='YlGnBu', linewidths=0, norm=LogNorm(1e-2, 1), ax=ax3, cbar = k == len(dynamics_list)-1)
+
+        ax3.set_yticks(np.arange(0, len(m_list))[::5]+4.5)
+        ax3.set_yticklabels(m_ticks[::-1], rotation=-20)
+        ax3.set_xticks(np.arange(len(beta_heatmap))[::len(beta_heatmap) // 4] + 0.5)
+        ax3.set_xticklabels(beta_ticks, rotation=20)
+        if k > 0:
+            ax3.set_yticks([])
+        ax3.tick_params(labelsize=ticksize*0.6)
+
+    ax3.annotate('$\\mathrm{Err} (y^{(\\mathrm{gl})})$', xy=(1.40, 0.38), xycoords="axes fraction", size=labelsize*0.5, rotation=90)
+
+
+    """
     for (k, dynamics), beta_list in zip(enumerate(dynamics_list), beta_list_lists):
         ax3 = fig.add_subplot(gs[2, k])
         simpleaxis(ax3)
@@ -846,18 +907,19 @@ def yerror_m_beta_illustration(network_type, N, d_list, seed_list, beta_1D_list,
         h_plot, kmean_plot, m_opt_list = m_opt_fun(dynamics )
         ax3.scatter(x=h_plot/kmean_plot, y=h_plot+kmean_plot, s=10, c=np.log(1+m_opt_list), cmap='Reds')
 
+    """
 
     xlabel = '$ m $'
     ylabel = '$ \\mathrm{Err} (y^{(\\mathrm{gl})})$'
     fig.text(x=0.01, y=0.55, verticalalignment='center', s=ylabel, size=labelsize*0.6, rotation=90)
     fig.text(x=0.01, y=0.85, verticalalignment='center', s='$y^{(\\mathrm{gl})} (m=1)$', size=labelsize*0.6, rotation=90)
-    fig.text(x=0.01, y=0.25, verticalalignment='center', s='$\\beta (h + \\langle k \\rangle )$', size=labelsize*0.6, rotation=90)
+    fig.text(x=0.03, y=0.18, verticalalignment='center', s='$m$', size=labelsize*0.6, rotation=90)
     fig.text(x=0.5, y=0.36, horizontalalignment='center', s=xlabel, size=labelsize*0.6)
     fig.text(x=0.5, y=0.70, horizontalalignment='center', s='$\\beta$', size=labelsize*0.6)
-    fig.text(x=0.5, y=0.01, horizontalalignment='center', s='$h /  \\langle k \\rangle $', size=labelsize*0.6)
+    fig.text(x=0.5, y=0.01, horizontalalignment='center', s='$\\beta^{\\mathrm{wt}} - \\beta_c^{\\mathrm{wt}} $', size=labelsize*0.6)
 
     #plt.tick_params(labelsize=16*0.9)
-    plt.subplots_adjust(left=0.10, right=0.92, wspace=0.50, hspace=0.85, bottom=0.1, top=0.95)
+    plt.subplots_adjust(left=0.10, right=0.92, wspace=0.50, hspace=0.55, bottom=0.1, top=0.95)
     save_des = '../manuscript/dimension_reduction_v2_020322/' + dynamics + '_' + network_type +  '_subplots_dis_err_std_noabs.png'
     #plt.savefig(save_des, format='png')
     #plt.close()
@@ -1002,7 +1064,7 @@ def plot_xs_onenet_update(network_type, N, d, seed, dynamics, m_list, space, wei
         index_plot = np.where(np.abs(weight_list - weight) < 1e-02 )[0][0] 
         ax = fig.add_subplot(gs[2, j*2:(j+1)*2])
         ax.set_ylim(0.09, 13)
-        ax.annotate(f'({letters[j+3]})', xy=(-0.1, 1.03), xycoords="axes fraction", size=labelsize*0.6)
+        ax.annotate(f'({letters[j+5]})', xy=(-0.1, 1.03), xycoords="axes fraction", size=labelsize*0.6)
         simpleaxis(ax)
         for k, m in enumerate(m_list):
             y = y_group_list[m][index_plot]
@@ -1012,7 +1074,7 @@ def plot_xs_onenet_update(network_type, N, d, seed, dynamics, m_list, space, wei
         title_name = f'$w={weight}$'
         ax.set_title(title_name, size=labelsize*0.5)
         ax.set_xlabel('$m$', size=labelsize*0.5)
-        ax.set_ylabel('$x_s$', size=labelsize*0.5)
+        ax.set_ylabel('$y(m)$', size=labelsize*0.5)
 
     ax = fig.add_subplot(gs[3, 0:2])
     simpleaxis(ax)
@@ -1048,7 +1110,7 @@ def plot_xs_onenet_update(network_type, N, d, seed, dynamics, m_list, space, wei
 
     ax.set_title('', size=labelsize*0.5)
     ax.set_xlabel('$w$', size=labelsize*0.5)
-    ax.set_ylabel('qualitative precision', size=labelsize*0.5)
+    ax.set_ylabel('precision', size=labelsize*0.45)
 
     ax = fig.add_subplot(gs[3, 4:6])
     simpleaxis(ax)
@@ -1068,7 +1130,7 @@ def plot_xs_onenet_update(network_type, N, d, seed, dynamics, m_list, space, wei
     ax.set_xticklabels(weight_ticks, rotation=20)
 
     #ax.set_title('$y^{(\\mathrm{gl})}$', size=labelsize*0.5)
-    ax.annotate('$y^{(\\mathrm{gl})}$', xy=(1.2, 0.5), xycoords="axes fraction", size=labelsize*0.5, rotation=90)
+    ax.annotate('$y^{(\\mathrm{gl})}$', xy=(1.25, 0.4), xycoords="axes fraction", size=labelsize*0.5, rotation=90)
     ax.set_xlabel('$w$', size=labelsize*0.5)
     ax.set_ylabel('$m$', size=labelsize*0.5)
 
@@ -1089,7 +1151,7 @@ def plot_xs_onenet_update(network_type, N, d, seed, dynamics, m_list, space, wei
     #ax.set(yscale='log')
     ax.set_title('', size=labelsize*0.5)
     ax.set_xlabel('$w$', size=labelsize*0.5)
-    ax.set_ylabel('$Err (y_{(\\mathrm{gl})})$', size=labelsize*0.5)
+    ax.set_ylabel('$\\mathrm{Err} (y_{(\\mathrm{gl})})$', size=labelsize*0.5)
 
     ax = fig.add_subplot(gs[4, 2:4])
     simpleaxis(ax)
@@ -1143,7 +1205,7 @@ def plot_xs_onenet_update(network_type, N, d, seed, dynamics, m_list, space, wei
     ax.set_xticks(np.array(weight_ticks) / np.unique(np.round(np.diff(weight_list) , 5))- 0.5)
     ax.set_xticklabels(weight_ticks, rotation=20)
 
-    ax.annotate('Err $(y^{(\\mathrm{gl})})$', xy=(1.25, 0.5), xycoords="axes fraction", size=labelsize*0.5, rotation=90)
+    ax.annotate('$\\mathrm{Err} (y^{(\\mathrm{gl})})$', xy=(1.29, 0.3), xycoords="axes fraction", size=labelsize*0.5, rotation=90)
     ax.set_xlabel('$w$', size=labelsize*0.5)
     ax.set_ylabel('$m$', size=labelsize*0.5)
 
@@ -1292,8 +1354,10 @@ beta_list_lists = [[1.0, 3.0, 5.0, 7.0, 9.0], [20, 30, 40, 50, 60], [1.5, 2.0, 3
 m_list = np.unique(np.array(np.round([(2**0.25) ** i for i in range(40)], 0), int) )
 #yerror_m_beta(network_type, N, d_list, seed_list, dynamics_list, m_list, space, beta_list_lists)
 beta_1D_list = [np.round(np.arange(0.5, 20.1, 1), 5), np.arange(5, 100, 1), np.round(np.arange(1., 40.1, 0.2), 5), np.arange(1, 100, 1)]
+beta_c_list = [7, 58, 2, 8]
+beta_heatmap_list = [np.round(np.arange(0.5, 10.1, 0.5), 5), np.arange(10, 66, 5), np.round(np.arange(1.5, 5.1, 0.5), 5), np.arange(6, 31, 2)]
 
-#yerror_m_beta_illustration(network_type, N, d_list, seed_list, beta_1D_list, dynamics_list, arguments_list, initial_condition_list, m_list, space, beta_list_lists)
+#yerror_m_beta_illustration(network_type, N, d_list, seed_list, beta_1D_list, dynamics_list, arguments_list, initial_condition_list, m_list, space, beta_list_lists, beta_c_list, beta_heatmap_list)
 
 
 d = [2.5, 999, 3]
@@ -1316,7 +1380,8 @@ m_list = [1, 4, 16, 64, 256, N]
 m_list = np.unique(np.array(np.round([(2**0.25) ** i for i in range(40)], 0), int) ).tolist() + [N]
 weight_plot = [0.15, 0.2, 0.25]
 error_threshold_list = [0.01, 0.05, 0.1, 0.5]
-#plot_xs_onenet_update(network_type, N, d, seed, dynamics, m_list, space, weight_list, weight_plot, threshold_value, error_threshold_list)
+
+plot_xs_onenet_update(network_type, N, d, seed, dynamics, m_list, space, weight_list, weight_plot, threshold_value, error_threshold_list)
 
 
 
@@ -1366,6 +1431,7 @@ y_multi_list = np.array(y_multi_list)
 index_plot = np.where(4< k_indicator)[0]
 plt.plot(y_multi_list[index_plot].transpose())
 
+"""
 """
 rows, cols = 3, 4
 fig = plt.figure( figsize=(12, 6 ))
@@ -1443,4 +1509,4 @@ fig.text(x=0.5, y=0.5, horizontalalignment='center', s='$\\beta$', size=labelsiz
 fig.text(x=0.04, y=0.3, horizontalalignment='center', s='$P(k)$', size=labelsize*0.6)
 fig.text(x=0.04, y=0.75, horizontalalignment='center', s='$m_{\\mathrm{opt}}$', size=labelsize*0.6)
 plt.subplots_adjust(left=0.1, right=0.95, wspace=0.25, hspace=0.45, bottom=0.1, top=0.95)
-
+"""

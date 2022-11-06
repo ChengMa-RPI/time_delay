@@ -8,7 +8,8 @@ client.load_host_keys(os.path.expanduser("~/.ssh/known_hosts"))
 client.set_missing_host_key_policy(paramiko.RejectPolicy())
 # client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
 
-client.connect('ganxis3.nest.rpi.edu', username='mac6', password='woods*score&sister')
+#client.connect('ganxis3.nest.rpi.edu', username='mac6', password='woods*score&sister')
+client.connect('ganxis3.nest.rpi.edu', username='mac6', password='973366MaChengRPI')
 
 def transfer_files(directory, filenames):
 
@@ -320,9 +321,21 @@ dynamics = 'CW'
 des_y_multi =  dynamics + '/' + network_type + '/' + 'xs_bifurcation/y_multi_beta/'
 des_y_group =  dynamics + '/' + network_type + '/' + 'xs_bifurcation/y_group_beta/'
 
-transfer_files(des_y_multi, [])
-transfer_files(des_y_group, [])
+#transfer_files(des_y_multi, [])
+#transfer_files(des_y_group, [])
 
 des_ygl =  dynamics + '/' + network_type + '/' + 'xs_bifurcation/ygl_beta/'
 #transfer_files(des_ygl, [])
 
+des_tau = '../data/tau_compare/' 
+#transfer_files(des_tau, [])
+
+
+dynamics = 'mutual'
+network_type = 'ER'
+network_type = 'SF'
+#des_tau_eigen = '../data/tau/' + dynamics + '/' + network_type + '/eigen/' 
+des_tau_evolution = '../data/tau/' + dynamics + '/' + network_type + '/evolution/' 
+#transfer_files(des_tau_evolution, [])
+des_tau_eigen_all = '../data/tau/' + dynamics + '/' + network_type + '/tau_initial_condition/' 
+transfer_files(des_tau_eigen_all, [])

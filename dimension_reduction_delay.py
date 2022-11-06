@@ -33,6 +33,7 @@ D = 5
 E = 0.9
 H = 0.1
 
+cpu_number = 4
 def mutual_multi_delay(f, x0, x, t, dt, d, arguments, net_arguments):
     """describe the derivative of x.
     set universal parameters 
@@ -69,7 +70,7 @@ def xs_group_partition_bifurcation(A, feature, m, dynamics, arguments, attractor
     dynamics_multi = globals()[dynamics + '_multi']
     initial_condition_reduction_deg_part = np.ones(len(A_reduction_deg_part)) * attractor_value
     xs_reduction = odeint(dynamics_multi, initial_condition_reduction_deg_part, t, args=(arguments, net_arguments_reduction_deg_part))[-1]
-    return xs_reduction, group_index
+    return xs_reduction, A_reduction_deg_part, group_index
 
 def xs_multi_bifurcation(A, dynamics, arguments, attractor_value, net_arguments):
     t = np.arange(0, 1000, 0.01)
@@ -89,7 +90,7 @@ def eigen_blocks(A, feature, m, dynamics, arguments, attractor_value):
     :returns: TODO
 
     """
-    xs_reduction, group_index = xs_group_partition_bifurcation(A, feature, m, dynamics, arguments, attractor_value)
+    xs_reduction, A_reduction_deg_part, group_index = xs_group_partition_bifurcation(A, feature, m, dynamics, arguments, attractor_value)
     length_groups = len(group_index)
     N_actual = sum([len(i) for i in group_index])
     xs_groups = np.ones(N_actual)
@@ -147,12 +148,12 @@ def tau_m(dynamics, arguments, network_type, N, seed, d, weight, m_list, attract
     group_file = des + dynamics + '_' + network_type + f'_N={N}_d={d}_seed={seed}_weight={weight}_group.csv'
     df_group.to_csv(group_file, index=None, header=None, mode='a')
 
-    tau_multi = eigen_solution(A, dynamics, arguments, attractor_value, net_arguments, tau_list, nu_list)
+    tau_multi = eigen_solution(A, dynamics, arguments, attractor_value, net_arguments, tau_list, nu_list, N)
     df_multi = pd.DataFrame([[tau_multi]])
     multi_file = des + dynamics + '_' + network_type + f'_N={N}_d={d}_seed={seed}_weight={weight}_eigen.csv'
     df_multi.to_csv(multi_file, index=None, header=None, mode='a')
 
-    return tau_list, tau_multi
+    return None 
 
 def eigenvalue_zero(x, A, fx, fxt, gx_i, gx_j):
     """TODO: Docstring for matrix_variable.
@@ -173,7 +174,7 @@ def eigenvalue_zero(x, A, fx, fxt, gx_i, gx_j):
     zeropoint = eigenvalue[np.argmin(np.abs(eigenvalue))]
     return np.array([np.real(zeropoint), np.imag(zeropoint)])
 
-def eigen_solution(A, dynamics, arguments, attractor_value, net_arguments, tau_list, nu_list):
+def eigen_solution(A, dynamics, arguments, attractor_value, net_arguments, tau_list, nu_list, m, feature):
     """TODO: Docstring for eigen_fg.
 
     :dynamics: TODO
@@ -182,23 +183,33 @@ def eigen_solution(A, dynamics, arguments, attractor_value, net_arguments, tau_l
     :returns: TODO
 
     """
-    xs = xs_multi_bifurcation(A, dynamics, arguments, attractor_value, net_arguments)
+    if m == len(A):
+        xs = xs_multi_bifurcation(A, dynamics, arguments, attractor_value, net_arguments)
+        A_T = A.transpose()
+    else:
+        xs, A_reduction, group_index = xs_group_partition_bifurcation(A, feature, m, dynamics, arguments, attractor_value)
+        A_T = A_reduction.transpose()
     if dynamics == 'mutual':
         B, C, D, E, H, K = arguments
         fx = (1-xs/K) * (2*xs/C-1)
         fxt = -xs/K*(xs/C-1)
         xs_T = xs.reshape(len(xs), 1)
+
+        "A_ij: interaction from j to i, should be transposed to A_ji for directed networks (dimension reduction)"
         denominator = D + E * xs + H * xs_T
-        "A should be transposed to A_ji"
-        gx_i = np.sum(A * (xs_T/denominator - E * xs * xs_T/denominator ** 2 ), 0)
-        gx_j = A * (xs/denominator - H * xs * xs_T/denominator ** 2 )
+        gx_i = np.sum(A_T * (xs_T/denominator - E * xs * xs_T/denominator ** 2 ), 0)
+        gx_j = A_T * (xs/denominator - H * xs * xs_T/denominator ** 2 )
+        """Aij: interaction from j to i
+        denominator = D + E * xs_T + H * xs
+        gx_i = np.sum(A * (xs/denominator - E * (xs * xs_T).transpose()/denominator ** 2 ), 1)
+        gx_j = A * (xs_T/denominator - H * (xs * xs_T).transpose()/denominator ** 2 )
+        """
     "compute eigenvalues"
     tau_sol = []
     for initial_condition in np.array(np.meshgrid(tau_list, nu_list)).reshape(2, int(np.size(tau_list) * np.size(nu_list))).transpose():
-        print(initial_condition)
-        tau_solution, nu_solution = fsolve(eigenvalue_zero, initial_condition, args=(A, fx, fxt, gx_i, gx_j))
+        tau_solution, nu_solution = fsolve(eigenvalue_zero, initial_condition, args=(A_T, fx, fxt, gx_i, gx_j))
         "check the solution given by fsolve built-in function."
-        eigen_real, eigen_imag = eigenvalue_zero(np.array([tau_solution, nu_solution]), A, fx, fxt, gx_i, gx_j)
+        eigen_real, eigen_imag = eigenvalue_zero(np.array([tau_solution, nu_solution]), A_T, fx, fxt, gx_i, gx_j)
         if abs(eigen_real) < 1e-5 and abs(eigen_imag) < 1e-5:
             #print(tau_solution, nu_solution)
             tau_sol.append(tau_solution)
@@ -271,7 +282,7 @@ def tau_parallel(network_type, N, seed, d, weight_list, dynamics, arguments, att
     p.join()
 
     p = mp.Pool(cpu_number)
-    p.starmap_async(tau_evolution, [(network_type, N, seed, d, weight, dynamics, arguments, attractor_value, delay1, delay2, criteria_delay, criteria_dyn) for weight in weight_list]).get()
+    #p.starmap_async(tau_evolution, [(network_type, N, seed, d, weight, dynamics, arguments, attractor_value, delay1, delay2, criteria_delay, criteria_dyn) for weight in weight_list]).get()
     p.close()
     p.join()
 
@@ -307,6 +318,49 @@ def delay_evolution(network_type, N, seed, d, weight, dynamics, arguments, attra
     df.to_csv(xs_file, header=None, index=None)
     return None
 
+def tau_eigen(network_type, N, seed, d, weight, space, tradeoff_para, method, dynamics, arguments, attractor_value, net_arguments, tau_list, nu_list, m_list):
+    """TODO: Docstring for tau_eigen.
+
+    :arg1: TODO
+    :returns: TODO
+
+    """
+    A, feature, net_arguments = A_feature(network_type, N, seed, d, weight, space, tradeoff_para, method)
+    for m in m_list:
+        tau_critical = eigen_solution(A, dynamics, arguments, attractor_value, net_arguments, tau_list, nu_list, m, feature)
+    df_multi = pd.DataFrame([[tau_multi]])
+    multi_file = des + dynamics + '_' + network_type + f'_N={N}_d={d}_seed={seed}_weight={weight}_eigen.csv'
+    df_multi.to_csv(multi_file, index=None, header=None, mode='a')
+
+
+def tau_eigen_parallel(network_type, N, seed, d, weight_list, dynamics, arguments, attractor_value, delay1, delay2, criteria_delay, criteria_dyn, space, tradeoff_para, method, tau_list, nu_list):
+    """TODO: Docstring for tau_evolution_parallel.
+
+    :network_type: TODO
+    :N: TODO
+    :beta: TODO
+    :: TODO
+    :returns: TODO
+
+    """
+
+    des = '../data/' + '/tau/' + dynamics + '/network_type/eigen/' 
+    if not os.path.exists(des):
+        os.makedirs(des)
+
+    p = mp.Pool(cpu_number)
+    p.starmap_async(tau_eigen, [(dynamics, arguments, network_type, N, seed, d, weight, m_list, attractor_value, space, tradeoff_para, method, tau_list, nu_list) for weight in weight_list]).get()
+    p.close()
+    p.join()
+
+    p = mp.Pool(cpu_number)
+    #p.starmap_async(tau_evolution, [(network_type, N, seed, d, weight, dynamics, arguments, attractor_value, delay1, delay2, criteria_delay, criteria_dyn) for weight in weight_list]).get()
+    p.close()
+    p.join()
+
+    return None
+
+
 
 dynamics = 'mutual'
 arguments = (B, C, D, E, H, K_mutual)
@@ -314,9 +368,8 @@ attractor_value = 0.1
 N = 1000
 network_type = 'SF'
 d = [2.5, 999, 3]
-seed = [1, 1]
+seed = [2, 2]
 m_list = np.unique(np.array(np.round([(2**0.25) ** i for i in range(40)], 0), int) ).tolist() + [N]
-m_list = [1]
  
 
 m = 20
@@ -334,9 +387,14 @@ delay1 = 0.1
 delay2 = 1
 criteria_delay = 0.01
 criteria_dyn = 1e-3
-#tau_parallel(network_type, N, seed, d, weight_list, dynamics, arguments, attractor_value, delay1, delay2, criteria_delay, criteria_dyn, space, tradeoff_para, method, tau_list, nu_list)
+seed_list = [3, 4, 5, 6, 7, 8, 9]
+for seed in seed_list:
+    seed = [seed, seed]
+    #tau_parallel(network_type, N, seed, d, weight_list, dynamics, arguments, attractor_value, delay1, delay2, criteria_delay, criteria_dyn, space, tradeoff_para, method, tau_list, nu_list)
+
 weight_list = [0.05, 0.1, 0.5, 1.0]
 delay_list = [[0.25, 0.26, 0.27, 0.28], [0.25, 0.26, 0.27, 0.28], [0.22, 0.23, 0.24, 0.25], [0.19, 0.2, 0.21, 0.22]]
 for weight in weight_list:
     for delay in delay_list:
-        delay_evolution(network_type, N, seed, d, weight, dynamics, arguments, attractor_value, delay)
+        #delay_evolution(network_type, N, seed, d, weight, dynamics, arguments, attractor_value, delay)
+        pass
