@@ -110,7 +110,8 @@ def feature_from_network_topology(A, G, space, tradeoff_para, method):
     :returns: TODO
 
     """
-    core_number = np.array(list(nx.core_number(G).values())) 
+    if method != 'degree':
+        core_number = np.array(list(nx.core_number(G).values())) 
     k = np.sum(A>0, 0)
     N_actual = len(k)
     if method == 'kcore':

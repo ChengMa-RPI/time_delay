@@ -433,9 +433,10 @@ network_type = 'SF'
 space = 'log'
 N = 1000
 seed_list = [[i, i] for i in range(1, 10)]
-d_list = [[2.5, 999, 3]] * 9
+d_list = [[3, 999, 4]] * 9
 weight_list = np.round( np.arange(0.01, 0.6, 0.01), 5)
 m_list = np.unique(np.array(np.round([(2**0.25) ** i for i in range(40)], 0), int) )
+
  
 
 
@@ -468,7 +469,29 @@ m_list = np.arange(1, N, 1)
 
 #xs_group_parallel(dynamics, arguments, network_type, N, seed_list, d_list, weight_list, m_list, attractor_value, space, tradeoff_para, method)
 
-#xs_multi_parallel(dynamics, arguments, network_type, N, seed_list, d_list, weight_list, attractor_value)
+dynamics = 'mutual'
+arguments = (B, C, D, E, H, K_mutual)
+attractor_value = 0.1
+
+dynamics = 'CW'
+arguments = (a, b)
+attractor_value = 100
+
+network_type = 'SF'
+space = 'log'
+N = 1000
+seed_list = [[i, i] for i in range(0, 10)]  * 2
+d_list = [[2.5, 999, 3]] * 10 + [[3, 999, 4]] * 10
+network_type = 'ER'
+space = 'ER'
+N = 1000
+seed_list = [i for i in range(10)] * 2
+d_list = [4000] * 10 + [8000] * 10
+#weight_list = np.round( np.arange(0.01, 0.3, 0.05), 5)
+weight_list = [0.6]
+
+xs_multi_parallel(dynamics, arguments, network_type, N, seed_list, d_list, weight_list, attractor_value)
+
 
 network_type = 'SF'
 space = 'log'

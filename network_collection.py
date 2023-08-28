@@ -63,7 +63,7 @@ def extract_network_data(dynamics, network_type):
         seed_list.append(seed)
     return N_list, d_list, seed_list
 
-def A_to_save(dynamics, network_type):
+def A_to_save(dynamics, network_type, N_list=None, d_list=None, seed_list=None):
     """TODO: Docstring for A_to_save.
 
     :network_type: TODO
@@ -74,12 +74,14 @@ def A_to_save(dynamics, network_type):
 
     """
 
-    N_list, d_list, seed_list = extract_network_data(dynamics, network_type) 
+    if not N_list and not d_list and not seed_list:
+        N_list, d_list, seed_list = extract_network_data(dynamics, network_type) 
     save_des = '../data/' + dynamics + '/' + network_type + '/xs_bifurcation/A_matrix/'
     if not os.path.exists(save_des):
         os.makedirs(save_des)
     for N, d, seed in zip(N_list, d_list, seed_list):
         save_file = save_des + f'N={N}_d={d}_seed={seed}_A.npz'
+        print(N, d, seed)
         if not os.path.exists(save_file):
             A, A_interaction, index_i, index_j, cum_index = network_generate(network_type, N, 1, 0, seed, d)
             scipy.sparse.save_npz(save_file, scipy.sparse.csr_matrix(A) )
@@ -254,9 +256,16 @@ def critical_region_scatter(dynamics, network_type_list, m, hetero_type, critica
 #dynamics = 'genereg'
 survival_threshold = 1e-3
 
-
+dynamics = 'mutual'
 network_type = 'SF'
-#A_to_save(dynamics, network_type)
+N_list = [1000] * 10
+d_list = [[3.8, 999, 5]] * 10
+seed_list = [[i, i] for i in range(0, 10)]
+network_type = 'ER'
+N_list = [1000] * 30
+d_list= [2000] * 10 + [4000] * 10 + [8000] * 10
+seed_list = [i for i in range(10)] * 3
+A_to_save(dynamics, network_type, N_list, d_list, seed_list)
 
 space = 'log'
 tradeoff_para = 0.5
