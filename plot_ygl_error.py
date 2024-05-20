@@ -1306,6 +1306,208 @@ def flower_bee(ax1, ax2):
     for i, j in bee_net:
         ax2.plot([bee_bi_connector[i][0], bee_bi_connector[j][0]], [bee_bi_connector[i][1], bee_bi_connector[j][1]], color='#66c2a5', linewidth=1.0, alpha=0.9)
 
+def plot_xs_onenet_without_illustration(network_type, N, d, seed, dynamics, m_list, space, weight_list, weight_plot, threshold_value, error_threshold_list):
+    """TODO: Docstring for plot_P_w.
+
+    :weight_list: TODO
+    :returns: TODO
+
+    """    
+    #fig, axes = plt.subplots(3, len(weight_plot), sharex=False, sharey=False, figsize=(4*len(weight_plot) , 3*3 ) )
+    fig = plt.figure( figsize=(4*len(weight_plot) , 7 ))
+    gs = mpl.gridspec.GridSpec(nrows=3, ncols=6, height_ratios=[1, 1, 1])
+    letters = list('abcdefghijklmnopqrstuvwxyz')
+    markers = ['o', '^', 's', 'p', 'P', 'h']
+    linestyles = [(j, i) for i in [1, 3, 6, 9, 12] for j in [2, 5, 8, 11]]
+    colors=sns.color_palette('hls', 40)
+    alphas = [np.log(min(m_list)+1) / np.log(m+1) for m in m_list]
+    sizes = [np.log(min(m_list)+1) / np.log(m+1) for m in m_list]
+    A_unit, A_interaction, index_i, index_j, cum_index = network_generate(network_type, N, 1, 0, seed, d)
+    G = nx.from_numpy_array(A_unit)
+    feature = feature_from_network_topology(A_unit, G, space, tradeoff_para=0.5, method='degree')
+    des = '../data/' + dynamics + '/' + network_type + '/' + 'xs_bifurcation/'
+    xs_multi_file = des + 'xs_multi/' + f'N={N}_d={d}_seed={seed}.csv'
+    data_multi = np.array(pd.read_csv(xs_multi_file, header=None))
+    weights_multi = data_multi[:, 0]
+    index = [np.where(np.abs(weights_multi - weight) < 1e-02 )[0][0]  for weight in weight_list]
+    xs_multi = data_multi[index, 1:]
+    y_multi = betaspace(A_unit, xs_multi)[-1]
+    y_group_list = dict()
+    xs_group_list = dict()
+    groups_node_nums = dict()
+    y_group_list[N] = xs_multi
+    xs_group_list[N] = xs_multi
+    groups_node_nums[N] = np.array(np.ones(N), int)
+    for m in m_list[:-1]:
+        xs_group_file = des + f'degree_kmeans_space={space}/' + f'N={N}_d={d}_number_groups={m}_seed={seed}.csv'
+        data_group = np.array(pd.read_csv(xs_group_file, header=None))
+        group_index = group_index_from_feature_Kmeans(feature, m)
+        groups_node_nums[m] = np.array([len(i) for i in group_index])
+        weights_group = data_group[:, :1]
+        index = [np.where(np.abs(weights_group - weight) < 1e-02 )[0][0]  for weight in weight_list]
+        y_group = data_group[index, 1:]
+        xs_group = np.zeros( (len(y_group), N) )
+        for i, group_i in enumerate(group_index):
+            xs_group[:, group_i] = y_group[:, i:i+1]
+        y_group_list[m] = y_group
+        xs_group_list[m] = xs_group
+
+    for j, weight in enumerate(weight_plot):
+        index_plot = np.where(np.abs(weight_list - weight) < 1e-02 )[0][0] 
+        ax = fig.add_subplot(gs[0, j*2:(j+1)*2])
+        ax.set_ylim(0.09, 13)
+        ax.annotate(f'({letters[j]})', xy=(-0.1, 1.03), xycoords="axes fraction", size=labelsize*0.6)
+        simpleaxis(ax)
+        for k, m in enumerate(m_list):
+            y = y_group_list[m][index_plot]
+            ax.scatter(x=np.ones(len(y)) * m, y=y, s= (groups_node_nums[m] / np.sum(groups_node_nums[m]) + 0.05) * 100, alpha=np.log(min(m_list)+0.5) / np.log(m+0.5), color=colors[k]) 
+        ax.set(xscale='log', yscale='log')
+           
+        title_name = f'$w={weight}$'
+        ax.set_title(title_name, size=labelsize*0.5)
+        ax.set_xlabel('$m$', size=labelsize*0.5)
+        ax.set_ylabel('$y(m)$', size=labelsize*0.5)
+
+    ax = fig.add_subplot(gs[1, 0:2])
+    simpleaxis(ax)
+    ax.annotate(f'({letters[3]})', xy=(-0.1, 1.09), xycoords="axes fraction", size=labelsize*0.6)
+    m_ygl = [1, 4, 16, 64, 256, N]
+    for i_m, m in enumerate(m_ygl):
+        m_index = np.where(np.abs(m-np.array(m_list)) < 1e-3)[0][0]
+        xs_group_m = xs_group_list[m]
+        y_gl = betaspace(A_unit, xs_group_m)[-1]
+        ax.plot(weight_list, y_gl, linewidth=3, alpha=0.8, color=colors[m_index], label=f'$m={m}$', linestyle=(0, linestyles[i_m]) ) 
+    ax.set_title(title_name, size=labelsize*0.5)
+    ax.legend(fontsize=legendsize*0.4, frameon=False, loc=4, bbox_to_anchor=(1.01,0) ) 
+    ax.set(yscale='log')
+    ax.set_title('', size=labelsize*0.5)
+    ax.set_xlabel('$w$', size=labelsize*0.5)
+    ax.set_ylabel('$y_{(\\mathrm{gl})}$', size=labelsize*0.5)
+
+    ax = fig.add_subplot(gs[1, 2:4])
+    ax.annotate(f'({letters[4]})', xy=(-0.1, 1.09), xycoords="axes fraction", size=labelsize*0.6)
+    simpleaxis(ax)
+    for i_m, m in enumerate(m_ygl[:-1]):
+        m_index = np.where(np.abs(m-np.array(m_list)) < 1e-3)[0][0]
+        prediction_ratios = []
+        for i_w, weight in enumerate(weight_list):
+            high_nodes_multi = np.where(xs_group_list[N][i_w] > threshold_value)[0]
+            low_nodes_multi = np.where(xs_group_list[N][i_w] < threshold_value)[0]
+            high_nodes_group = np.where(xs_group_list[m][i_w] > threshold_value)[0]
+            low_nodes_group = np.where(xs_group_list[m][i_w] < threshold_value)[0]
+            prediction_ratio = (len(np.intersect1d(high_nodes_multi, high_nodes_group))  + len(np.intersect1d(low_nodes_multi, low_nodes_group)) )/ N
+            prediction_ratios.append(prediction_ratio)
+        ax.plot(weight_list, prediction_ratios, linewidth=3, alpha=0.8,  color=colors[m_index], label=f'$m={m}$', linestyle=(0, linestyles[i_m]) ) 
+    ax.legend(fontsize=legendsize*0.4, frameon=False, loc=4, bbox_to_anchor=(1.01,0) ) 
+
+    ax.set_title('', size=labelsize*0.5)
+    ax.set_xlabel('$w$', size=labelsize*0.5)
+    ax.set_ylabel('precision', size=labelsize*0.45)
+
+    ax = fig.add_subplot(gs[1, 4:6])
+    simpleaxis(ax)
+    ax.annotate(f'({letters[5]})', xy=(-0.1, 1.09), xycoords="axes fraction", size=labelsize*0.6)
+    ygl_group_list = []
+    for m in m_list:
+        xs_group = xs_group_list[m]
+        ygl_group = betaspace(A_unit, xs_group)[-1]
+        ygl_group_list.append(ygl_group)
+    ygl_list = np.vstack( (ygl_group_list) ) 
+    m_ticks = m_list[::5]
+    weight_ticks = [0.1, 0.2, 0.3, 0.4, 0.5]
+    sns.heatmap(ygl_list[::-1], vmin=0, vmax=np.max(ygl_list.max()), cmap='YlGnBu', linewidths=0, ax=ax)
+    ax.set_yticks(np.arange(0, len(m_list))[::5]-0.5)
+    ax.set_yticklabels(m_ticks[::-1], rotation=-20)
+    ax.set_xticks(np.array(weight_ticks) / np.unique(np.round(np.diff(weight_list) , 5))- 0.5)
+    ax.set_xticklabels(weight_ticks, rotation=20)
+
+    #ax.set_title('$y^{(\\mathrm{gl})}$', size=labelsize*0.5)
+    ax.annotate('$y^{(\\mathrm{gl})}$', xy=(1.25, 0.4), xycoords="axes fraction", size=labelsize*0.5, rotation=90)
+    ax.set_xlabel('$w$', size=labelsize*0.5)
+    ax.set_ylabel('$m$', size=labelsize*0.5)
+
+
+    ax = fig.add_subplot(gs[2, 0:2])
+    simpleaxis(ax)
+    ax.annotate(f'({letters[6]})', xy=(-0.1, 1.09), xycoords="axes fraction", size=labelsize*0.6)
+    xs_multi = xs_group_list[N]
+    y_multi = betaspace(A_unit, xs_multi)[-1]
+    m_ygl = [1, 4, 16, 64, 256]
+    for i_m, m in enumerate(m_ygl):
+        m_index = np.where(np.abs(m-np.array(m_list)) < 1e-3)[0][0]
+        xs_group_m = xs_group_list[m]
+        y_gl = betaspace(A_unit, xs_group_m)[-1]
+        error = np.abs(y_gl - y_multi) / np.abs(y_gl + y_multi)
+        ax.plot(weight_list, error, linewidth=3, alpha=0.8, color=colors[m_index], label=f'$m={m}$', linestyle=(0, linestyles[i_m]) ) 
+    ax.legend(fontsize=legendsize*0.4, frameon=False, loc='upper right' ) 
+    #ax.set(yscale='log')
+    ax.set_title('', size=labelsize*0.5)
+    ax.set_xlabel('$w$', size=labelsize*0.5)
+    ax.set_ylabel('$\\mathrm{Err} (y_{(\\mathrm{gl})})$', size=labelsize*0.5)
+
+    ax = fig.add_subplot(gs[2, 2:4])
+    simpleaxis(ax)
+    ax.annotate(f'({letters[7]})', xy=(-0.1, 1.09), xycoords="axes fraction", size=labelsize*0.6)
+    xs_multi = xs_group_list[N]
+    y_multi = betaspace(A_unit, xs_multi)[-1]
+    error_list = []
+    for i_m, m in enumerate(m_list):
+        m_index = np.where(np.abs(m-np.array(m_list)) < 1e-3)[0][0]
+        xs_group_m = xs_group_list[m]
+        y_gl = betaspace(A_unit, xs_group_m)[-1]
+        error = np.abs(y_gl - y_multi) / np.abs(y_gl + y_multi)
+        error_list.append(error)
+    error_list = np.vstack( (error_list) )
+    colors_error = ['#66c2a5', '#fc8d62', '#8da0cb', '#e78ac3', '#a6d854', '#ffd92f' ]
+    for i_e, error_threshold in enumerate(error_threshold_list):
+        m_opt_list = []
+        for i_w, w in enumerate(range(error_list.shape[-1])):
+            index_error = np.where(error_list[:, i_w] < error_threshold)[0]
+            if len(index_error):
+                m_opt = m_list[index_error[0]]
+            else:
+                m_opt = N
+            m_opt_list.append(m_opt)
+        ax.plot(weight_list, m_opt_list, linewidth=2, alpha=0.7, color=colors_error[i_e], label=f'$R_e={error_threshold}$', linestyle=(0, linestyles[i_e]) ) 
+    ax.legend(fontsize=legendsize*0.4, frameon=False, loc='upper right' ) 
+    #ax.legend(fontsize=legendsize*0.4, frameon=False, loc=4, bbox_to_anchor=(1.01,0) ) 
+    #ax.set(yscale='log')
+    ax.set_title('', size=labelsize*0.5)
+    ax.set_xlabel('$w$', size=labelsize*0.5)
+    ax.set_ylabel('$m_{\\mathrm{opt}}$', size=labelsize*0.5)
+    ax.set_yscale('log')
+
+    ax = fig.add_subplot(gs[2, 4:6])
+    ax.annotate(f'({letters[8]})', xy=(-0.1, 1.09), xycoords="axes fraction", size=labelsize*0.6)
+    simpleaxis(ax)
+    xs_multi = xs_group_list[N]
+    ygl_multi = betaspace(A_unit, xs_multi)[-1]
+    error_list = []
+    for m in m_list[:-1]:
+        xs_group = xs_group_list[m]
+        ygl_group = betaspace(A_unit, xs_group)[-1]
+        error = np.round(np.abs(ygl_multi-ygl_group), 10) / (np.abs(ygl_multi + ygl_group) )
+        error_list.append(error)
+    error_list = np.vstack( (error_list) ) 
+    m_ticks = m_list[:-1][::5]
+    weight_ticks = [0.1, 0.2, 0.3, 0.4, 0.5]
+    sns.heatmap(error_list[::-1], vmin=0, vmax=np.max(1), linewidths=0, ax=ax)
+    ax.set_yticks(np.arange(1, len(m_list)-1)[::5]+1.5)
+    ax.set_yticklabels(m_ticks[::-1], rotation=-20)
+    ax.set_xticks(np.array(weight_ticks) / np.unique(np.round(np.diff(weight_list) , 5))- 0.5)
+    ax.set_xticklabels(weight_ticks, rotation=20)
+
+    ax.annotate('$\\mathrm{Err} (y^{(\\mathrm{gl})})$', xy=(1.29, 0.3), xycoords="axes fraction", size=labelsize*0.5, rotation=90)
+    ax.set_xlabel('$w$', size=labelsize*0.5)
+    ax.set_ylabel('$m$', size=labelsize*0.5)
+
+
+    plt.subplots_adjust(left=0.1, right=0.95, wspace=0.55, hspace=0.55, bottom=0.1, top=0.95)
+    save_des = '../manuscript/dimension_reduction_v2_020322/' + network_type + '_subplots_xs_m.png'
+    #plt.savefig(save_des, format='png')
+    #plt.close()
+    return None
+
 
 
 
@@ -1381,7 +1583,8 @@ m_list = np.unique(np.array(np.round([(2**0.25) ** i for i in range(40)], 0), in
 weight_plot = [0.15, 0.2, 0.25]
 error_threshold_list = [0.01, 0.05, 0.1, 0.5]
 
-plot_xs_onenet_update(network_type, N, d, seed, dynamics, m_list, space, weight_list, weight_plot, threshold_value, error_threshold_list)
+#plot_xs_onenet_update(network_type, N, d, seed, dynamics, m_list, space, weight_list, weight_plot, threshold_value, error_threshold_list)
+plot_xs_onenet_without_illustration(network_type, N, d, seed, dynamics, m_list, space, weight_list, weight_plot, threshold_value, error_threshold_list)
 
 
 
@@ -1509,4 +1712,4 @@ fig.text(x=0.5, y=0.5, horizontalalignment='center', s='$\\beta$', size=labelsiz
 fig.text(x=0.04, y=0.3, horizontalalignment='center', s='$P(k)$', size=labelsize*0.6)
 fig.text(x=0.04, y=0.75, horizontalalignment='center', s='$m_{\\mathrm{opt}}$', size=labelsize*0.6)
 plt.subplots_adjust(left=0.1, right=0.95, wspace=0.25, hspace=0.45, bottom=0.1, top=0.95)
-"""
+""

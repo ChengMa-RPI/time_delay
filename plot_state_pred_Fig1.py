@@ -452,6 +452,234 @@ def main_fig(network_type_list, space_list, N_list, d_list, seed_list, weight_li
 
     plt.subplots_adjust(left=0.05, right=0.95, wspace=0.25, hspace=0.70, bottom=0.05, top=0.95)
 
+def main_fig_onedimension(network_type_list, space_list, N_list, d_list, seed_list, weight_list, dynamics):
+    """TODO: Docstring for main_fig.
+
+    :network_type: TODO
+    :N: TODO
+    :d: TODO
+    :seed: TODO
+    :dynamics: TODO
+    :returns: TODO
+
+    """
+    colors = ['Reds', 'Blues', 'Greens']
+    letters = list('abcdefghijklmnopqrstuvwxyz')
+    fig = plt.figure(figsize=(13, 6))
+    gs = mpl.gridspec.GridSpec(nrows=4, ncols=9, height_ratios=[0.9, 1, 1, 1], width_ratios=[1.05, 0.25, 0.75, 0.10, 0.75, 0.25, 0.75, 0.85, 1])
+    #plt.rcParams.update({"text.usetex": True,})
+    ax = fig.add_subplot(gs[0, :])
+    ax.set_axis_off()
+    ax.annotate( 'One-dimensional Reduction', xy = (1.2, 0.8),  xytext=(0.55, 0.7), xycoords='axes fraction', fontsize=14, color='tab:grey', weight='bold')
+
+
+    #plt.rcParams.update({"text.usetex": False,})
+    for (i, network_type), N, d, seed, space in zip(enumerate(network_type_list), N_list, d_list, seed_list, space_list):
+        if network_type == 'ER':
+            color_bias = 0
+            node_size_bias = 1
+        else:
+            color_bias = 0.1
+            node_size_bias = 5
+
+
+        A_unit, A_interaction, index_i, index_j, cum_index = network_generate(network_type, N, 1, 0, seed, d)
+        G = nx.from_numpy_array(A_unit)
+        feature = feature_from_network_topology(A_unit, G, space, tradeoff_para=0.5, method='degree')
+        if i == 2:
+            xlabel = '$w$'
+            xk_label = '$k$'
+        else:
+            xlabel = ''
+            xk_label = ''
+        if i == 1:
+            ylabel = '$y^{(\\mathrm{gl})}_s$'
+            ylabel_xs= '$x_s$'
+            yk_label = '$P(k)$'
+        else:
+            ylabel_xs = ''
+            ylabel = ''
+            yk_label = ''
+
+        ax = fig.add_subplot(gs[i+1, 0:2])
+        ax.annotate('$A_{ij}$', xy = (-0.7, 0.5),  xytext=(0.9, 0.9), xycoords='axes fraction', fontsize=15, color='k', alpha=.8, weight='bold')
+        title_letter = f'({letters[i+0]}1)'
+        title_letter = f'({letters[0]}{i+1})'
+        plot_network_topology(ax, network_type, N, A_unit, colors[i], color_bias, node_size_bias, title_letter)
+        if network_type == 'SF':
+            xy = (-0.4, 0.5)
+        else:
+            xy = (-0.7, 0.5)
+        ax.annotate( network_type, xy=xy,  xytext=(-0.85 - 0.08* len(network_type) , 0.45), xycoords='axes fraction', fontsize=15, color=sns.color_palette(colors[i])[-1], alpha=.5, weight='bold')
+        if i == 0:
+            ax.annotate('Topology', xy = (-0.7, 0.5),  xytext=( 0.25, 1.4), xycoords='axes fraction', fontsize=15, color='tab:grey', alpha=.5, weight='bold')
+
+        xs_multi = read_xs(network_type, N, space, d, seed, N, weight_list)
+        ax = fig.add_subplot(gs[i+1, 2])
+        title_letter = f'({letters[i+0]}2)'
+        title_letter = f'({letters[1]}{i+1})'
+        ax.annotate(title_letter, xy=(-0.2, 1.03), xycoords="axes fraction", size=labelsize*0.8)
+        simpleaxis(ax)
+        k = np.sum(A_unit >0 , 0)
+        if network_type == 'SF':
+            sns.histplot(k, bins=20, stat='density', ax=ax, color = sns.color_palette(colors[i])[-1], alpha=0.5)
+            ax.set_yscale('log')
+        else:
+            sns.histplot(k, bins=20, stat='density', ax=ax, color = sns.color_palette(colors[i])[-1], alpha=0.5)
+        ax.set_xlabel(xk_label, fontsize=labelsize)
+        ax.set_ylabel(yk_label, fontsize=labelsize)
+
+        ax = fig.add_subplot(gs[i+1, 4:6])
+        title_letter = f'({letters[i+0]}3)'
+        title_letter = f'({letters[2]}{i+1})'
+        linewidth = 2
+        alpha = 0.8
+        plot_xs_weight(ax, xlabel, ylabel_xs, A_unit, len(A_unit), weight_list, xs_multi, colors[i], linewidth, alpha, color_bias, title_letter)
+        if i == 0:
+            ax.annotate('Dynamics', xy = (-0.7, 0.5),  xytext=( 0.25, 1.4), xycoords='axes fraction', fontsize=15, color='tab:grey', alpha=.5, weight='bold')
+
+        ax = fig.add_subplot(gs[i+1, 6])
+        ax.set_axis_off()
+        ax.annotate(' ' * 10 , xy=(0.4, 0.50), xytext=(0.75, 0.5), xycoords='axes fraction', ha='center', va='bottom', bbox=dict(boxstyle='rarrow, pad=0.6', fc= sns.color_palette(colors[i])[-1] , ec='k', lw=2, alpha=0.5) )
+
+        ax = fig.add_subplot(gs[i+1, 7])
+        title_letter = f'({letters[i+0]}4)'
+        title_letter = f'({letters[3]}{i+1})'
+        m = 1
+        xs_group = read_xs(network_type, N, space, d, seed, m, weight_list)
+        group_index = group_index_from_feature_Kmeans(feature, m)
+        A_reduced, _, _ = reducednet_effstate(A_unit, xs_multi[0], group_index)
+        ax.annotate('$\\beta$', xy = (-0.2, 0.5),  xytext=(1, 1), xycoords='axes fraction', fontsize=15, color='k', alpha=.8, weight='bold')
+        if i == 0:
+            ax.annotate('Topology', xy = (-0.7, 0.5),  xytext=( 0.25, 1.4), xycoords='axes fraction', fontsize=15, color='tab:grey', alpha=.5, weight='bold')
+        plot_reduced_network_topology(ax, network_type, A_reduced, m, colors[i], color_bias, node_size_bias, title_letter)
+        ax = fig.add_subplot(gs[i+1, 8])
+        title_letter = f'({letters[i+0]}5)'
+        title_letter = f'({letters[4]}{i+1})'
+        if i == 0:
+            ax.annotate('Dynamics', xy = (-0.7, 0.5),  xytext=( 0.25, 1.4), xycoords='axes fraction', fontsize=15, color='tab:grey', alpha=.5, weight='bold')
+        plot_xs_weight(ax, xlabel, ylabel, A_reduced, m, weight_list, xs_group, colors[i], linewidth, alpha, color_bias, title_letter, xs_multi, A_unit, group_index)
+
+        if i == 2:
+            groundtruth, = ax.plot([], [], color='tab:grey', alpha=0.8, label='ground truth', linewidth=2)
+            reduced1, = ax.plot([], [], color=sns.color_palette(colors[0])[-1], linewidth=3)
+            reduced2, = ax.plot([], [], color=sns.color_palette(colors[1])[-1],  linewidth=3)
+            reduced3, = ax.plot([], [], color=sns.color_palette(colors[2])[-1],linewidth=3)
+            ax.legend( [groundtruth, (reduced1, reduced2, reduced3)], ['ground truth', 'reduced'], fontsize=legendsize*0.7, frameon=False, loc=4, bbox_to_anchor=(1.05,4.8), handler_map={tuple: HandlerTuple(ndivide=None)} ) 
+
+
+
+    plt.subplots_adjust(left=0.05, right=0.95, wspace=0.25, hspace=0.70, bottom=0.11, top=0.95)
+
+def main_fig_mdimension(network_type_list, space_list, N_list, d_list, seed_list, weight_list, dynamics):
+    """TODO: Docstring for main_fig.
+
+    :network_type: TODO
+    :N: TODO
+    :d: TODO
+    :seed: TODO
+    :dynamics: TODO
+    :returns: TODO
+
+    """
+    colors = ['Reds', 'Blues', 'Greens']
+    letters = list('abcdefghijklmnopqrstuvwxyz')
+    fig = plt.figure(figsize=(13, 5.5))
+    gs = mpl.gridspec.GridSpec(nrows=4, ncols=9, height_ratios=[1.15, 1, 1, 1], width_ratios=[1.05, 0.25, 0.75, 0.10, 0.75, 0.25, 0.75, 0.85, 1])
+    #plt.rcParams.update({"text.usetex": True,})
+
+
+    #plt.rcParams.update({"text.usetex": False,})
+    for (i, network_type), N, d, seed, space in zip(enumerate(network_type_list), N_list, d_list, seed_list, space_list):
+        if network_type == 'ER':
+            color_bias = 0
+            node_size_bias = 1
+        else:
+            color_bias = 0.1
+            node_size_bias = 5
+
+
+        A_unit, A_interaction, index_i, index_j, cum_index = network_generate(network_type, N, 1, 0, seed, d)
+        G = nx.from_numpy_array(A_unit)
+        feature = feature_from_network_topology(A_unit, G, space, tradeoff_para=0.5, method='degree')
+        if i == 2:
+            xlabel = '$w$'
+            xk_label = '$k$'
+        else:
+            xlabel = ''
+            xk_label = ''
+        if i == 1:
+            ylabel = '$y^{(\\mathrm{gl})}_s$'
+            ylabel_xs= '$x_s$'
+            yk_label = '$P(k)$'
+        else:
+            ylabel_xs = ''
+            ylabel = ''
+            yk_label = ''
+
+
+        xs_multi = read_xs(network_type, N, space, d, seed, N, weight_list)
+        linewidth = 2
+        alpha = 0.8
+
+
+        for j, m in enumerate([3, 5, 10]):
+            if i == 2:
+                xlabel = '$w$'
+            else:
+                xlabel = ''
+            if i == 1:
+                ylabel = '$y^{(\\mathrm{gl})}_s$'
+            else:
+                ylabel = ''
+
+            if j == 0:
+                ax = fig.add_subplot(gs[i+1, 0])
+            elif j == 1:
+                ax = fig.add_subplot(gs[i+1, 3:5])
+            elif j == 2:
+                ax = fig.add_subplot(gs[i+1, 7])
+            title_letter = f'({letters[j*2]}{i+1})'
+
+            if j == 0:
+                if network_type == 'SF':
+                    xytext = (-0.55 - 0.08* len(network_type) , 0.45)
+                else:
+                    xytext = (-0.85 - 0.08* len(network_type) , 0.45)
+                ax.annotate( network_type, xy=(-0.7, 0.5), xytext=xytext, xycoords='axes fraction', fontsize=15, color=sns.color_palette(colors[i])[-1], alpha=.5, weight='bold')
+            if i == 0:
+                ax.annotate( f'$m={m}$', xy = (0.7, 0.5),  xytext=(0.95, 1.25), xycoords='axes fraction', fontsize=15, color='tab:grey', weight='bold')
+                ax.annotate('$\\beta_{ab}$', xy = (-0.7, 0.5),  xytext=(0.85, 0.85), xycoords='axes fraction', fontsize=15, color='k', alpha=.8, weight='bold')
+            xs_group = read_xs(network_type, N, space, d, seed, m, weight_list)
+            group_index = group_index_from_feature_Kmeans(feature, m)
+            A_reduced, _, _ = reducednet_effstate(A_unit, np.random.random(len(A_unit)), group_index)
+            plot_reduced_network_topology(ax, network_type, A_reduced, m, colors[i], color_bias, node_size_bias, title_letter)
+
+            if j == 0:
+                ax = fig.add_subplot(gs[i+1, 1:3])
+            elif j == 1:
+                ax = fig.add_subplot(gs[i+1, 5:7])
+            elif j == 2:
+                ax = fig.add_subplot(gs[i+1, 8])
+            title_letter = f'({letters[1+j*2]}{i+1})'
+            plot_ygl_weight(ax, xlabel, ylabel, A_reduced, m, weight_list, xs_group, colors[i], linewidth, alpha, color_bias, title_letter, xs_multi, A_unit, group_index)
+
+            if j == 2 and i == 2:
+                groundtruth, = ax.plot([], [], color='tab:grey', alpha=0.8, label='ground truth', linewidth=2)
+                reduced1, = ax.plot([], [], color=sns.color_palette(colors[0])[-1], linewidth=3)
+                reduced2, = ax.plot([], [], color=sns.color_palette(colors[1])[-1],  linewidth=3)
+                reduced3, = ax.plot([], [], color=sns.color_palette(colors[2])[-1],linewidth=3)
+                ax.legend( [groundtruth, (reduced1, reduced2, reduced3)], ['ground truth', 'reduced'], fontsize=legendsize*0.7, frameon=False, loc=4, bbox_to_anchor=(1.05,4.8), handler_map={tuple: HandlerTuple(ndivide=None)} ) 
+
+
+
+    ax = fig.add_subplot(gs[0, :])
+    ax.set_axis_off()
+    ax.annotate( 'm-dimensional Reduction', xy = (0.7, 0.5),  xytext=(0.37, 0.5), xycoords='axes fraction', fontsize=14, color='tab:grey', weight='bold')
+    draw_brace(ax, (0.12 * ax.get_xlim()[1], 0.8 * ax.get_xlim()[1]), 'tab:grey', 3, '')
+
+    plt.subplots_adjust(left=0.05, right=0.95, wspace=0.25, hspace=0.70, bottom=0.1, top=0.95)
+
 
     
 
@@ -499,9 +727,10 @@ d_list = [1600, [2.1, 99, 1], np.array([[0.9, 0.001, 0.001], [0.001, 0.5, 0.001]
 seed_list = [0, [15, 15], 0]
 weight_list = np.round(np.arange(0.01, 0.6, 0.01), 5)
 
-main_fig(network_type_list, space_list, N_list, d_list, seed_list, weight_list, dynamics)
+#main_fig(network_type_list, space_list, N_list, d_list, seed_list, weight_list, dynamics)
 
-
+#main_fig_onedimension(network_type_list, space_list, N_list, d_list, seed_list, weight_list, dynamics)
+main_fig_mdimension(network_type_list, space_list, N_list, d_list, seed_list, weight_list, dynamics)
 """
 "degree distribution"
 #sns.histplot(k, bins=20)
